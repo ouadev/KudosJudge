@@ -1,0 +1,22 @@
+bootstrapping steps:
++ create ramfs directory
++ init compilers list
++ load all shared libraries that the compilers need
++ load compilers into ramfs
++ choose use mode
+	(contest: create a dir with testcases(in&out) ,
+	standalone:accept code,infile,and outfile from network)
+
+
+daemon:
++ receive submission
++ compile
++ run & compare results
++ returns the judgement.
+
+
+requirements:
++ limit resources during running
++ manage well the ramfs memory (balance between HD and RAM for weak computers), to avoid killing the system.
++ security during the run, espicially the daemon has cap_root
++ speed
