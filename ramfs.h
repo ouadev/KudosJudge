@@ -20,11 +20,12 @@
 #include <sys/stat.h>
 #include <sys/mount.h>
 #include <sys/types.h>
+#include <fcntl.h>
 
 #include "log.h"
 
 
-
+#define RAMFS_CP_BUFFER_SIZE 512
 
 /**
 * structe ramfs_info : stores all the information about jugramfs;
@@ -34,11 +35,11 @@ typedef struct ramfs_info{
 	char* root_dir;
 	/** ramfs dir */
 	char* directory;
-	//size to allocate
+	//size to allocate (unit Bytes)
 	int size_alloc;
-	//memory length used
+	//memory length used (unit Bytes)
 	int used;
-	//max memory usage allowed
+	//max memory usage allowed (unit Bytes)
 	int mem_max;
 
 }ramfs_info;
@@ -48,6 +49,9 @@ typedef struct ramfs_info{
 
 /**
 * init_ramfs
+* @param rootfs the root directory to put the ramfs dir
+* @param size_alloc size in MegaBytes to allocate
+* @param max_size maximum size to tolerate,given the Linux ramfs hasn't size limit, in MegaBytes
 */
 ramfs_info* init_ramfs(char* rootfs,int size_alloc,int max_size);
 

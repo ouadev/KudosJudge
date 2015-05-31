@@ -7,19 +7,20 @@
 *init the ramfs parameters
 * max_size < size_alloc
 */
-ramfs_info* init_ramfs(char* rootfs,int size_alloc,int max_size){
-	if(max_size>size_alloc)
-		max_size=size_alloc;
-	if(max_size<0)
-		max_size=0;
+ramfs_info* init_ramfs(char* rootfs,int size_alloc_mb,int max_size_mb){
+	if(size_alloc_mb<0) size_alloc_mb=0;
+	if(max_size_mb>size_alloc_mb)
+		max_size_mb=size_alloc_mb;
+	if(max_size_mb<0)
+		max_size_mb=0;
 
 	ramfs_info* meminfo=(ramfs_info*)malloc(sizeof(ramfs_info));
 	meminfo->root_dir=(char*)malloc(strlen(rootfs));
 	strcpy(meminfo->root_dir,rootfs);
 	meminfo->directory=get_ramfs_dir(meminfo);
-	meminfo->size_alloc=size_alloc;
+	meminfo->size_alloc=size_alloc_mb*1000000;
 	meminfo->used=0;
-	meminfo->mem_max=max_size;
+	meminfo->mem_max=max_size_mb*1000000;
 
 	return meminfo;
 }
@@ -138,23 +139,22 @@ int create_ramfs( ramfs_info*info){
 *ramfs_cp()
 * copy regular files into ramfs directory.
 * if you want to copy directories, implement another function
+* @param src the path to the file to be copied
+* @param target relative path of the new file to the ramfs directory, /path/to/a/dir/newfilename, it's mandatory
 * +
 */
 int ramfs_cp(ramfs_info*info,char* src,char* target){
-	char* ramfs_dir=get_ramfs_dir(info);
 	
-	//check targer
-	if(!target){
-		target=(char*)malloc(5);
-		strcpy(target,"");
-	}
-
-	//does source exist ?
+	char* ramfs_dir=get_ramfs_dir(info);
 	struct stat st={0};
+	struct stat st_target;
+	char* full_target_dir;
+	//does source exist ?
 	if(stat(src,&st)!=0){
 		debugt("ramfs_cp","the source file doesn't exist");
 		return -1;
 	}
+	
 	//is a regular file
 	//if a symlink follow to the origin and copy
 	if(S_ISLNK(st.st_mode)){
@@ -164,17 +164,75 @@ int ramfs_cp(ramfs_info*info,char* src,char* target){
 		debugt("ramfs_cp","the given source is not a regular file");
 		return -2;
 	}
-
-	//do we have enough space
+	
+	//check target
+	if(!target){
+		debugt("ramfs_cp","the target path is null");
+		return -3;
+	}
+	full_target_dir=(char*)malloc(strlen(ramfs_dir)+strlen(target)+5);
+	sprintf(full_target_dir,"%s/%s",ramfs_dir,target);
+	if(stat(full_target_dir,&st_target)==0){
+		debugt("ramfs_cp"," a file exists with the same target name");
+		return -11;
+	}
+	//do we have enough space ?
 	int src_size=st.st_size;
 	int memfree=(info->mem_max-info->used);
 	if( memfree < src_size) {
 		debugt("ramfs_cp","ramfs full,cannot copy");
-		return -3;
+		return -4;
 	}
 
-	// char msg[200];
-	// sprintf(msg,"ramfs free space : %d\n",)
+	//open src & target
+	int src_fd,target_fd;
+	target_fd=open(full_target_dir,O_CREAT|O_WRONLY,S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH);
+	if(target_fd<0){
+		debugll("ramfs_cp cannot open target file");
+		return -5;
+	}
+	src_fd=open(src,O_RDONLY);
+	if(src_fd<0){
+		debugll("ramfs_cp cannot open src file");
+		return -6;
+	}
+
+	//do the cping
+	int numrd;
+	char buffer[RAMFS_CP_BUFFER_SIZE];
+	while( (numrd=read(src_fd,buffer,RAMFS_CP_BUFFER_SIZE)) > 0 ){
+		if(write(target_fd,buffer,numrd)!=numrd){
+			debugt("ramfs_cp","error writing data to target file");
+			return -7;
+		}
+	}
+	if(numrd==-1){
+		debugt("ramfs_cp","error reading data from source file");
+		return -8;
+	}
+	//fix permissions
+	//make sure owner has read & write , and group has read permissions
+	mode_t src_mode=st.st_mode;
+	fchmod(target_fd, src_mode|S_IRUSR|S_IWUSR|S_IRGRP );
+
+	//update ramfs_info
+	info->used+=src_size;
+	//cleanup and exit
+	if(close(src_fd)==-1){
+		debugt("ramfs_cp","cannot close src file descriptor");
+		return -9;
+	}
+	if(close(target_fd)==-1){
+		debugt("ramfs_cp","cannot close target file descriptor");
+		return -10;
+	}
+	//success
+	return 0;
+
+	//permissions transfer
+	
+	//
+
 
 }
 
@@ -182,7 +240,7 @@ int ramfs_cp(ramfs_info*info,char* src,char* target){
 *print
 */
 void print_ramfs_info(ramfs_info*info){
-	printf("\n\n");
+	printf("\n");
 	printf("directory:\t\t%s%s\n",info->root_dir,"/jug");
 	printf("mem allocated : \t %d\n",info->size_alloc);
 	printf("mem max allowed:\t %d\n",info->mem_max);
