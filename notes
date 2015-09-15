@@ -20,3 +20,9 @@ requirements:
 + manage well the ramfs memory (balance between HD and RAM for weak computers), to avoid killing the system.
 + security during the run, espicially the daemon has cap_root
 + speed
+
+
+
+
+###### notes ###########
+clean the $LD_LIBRARY_PATH  environment variable
