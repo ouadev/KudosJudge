@@ -1,7 +1,7 @@
 bootstrapping steps:
 + create ramfs directory
 + init compilers list
-+ load all shared libraries that the compilers need
++ load all shared libraries  the compilers need
 + load compilers into ramfs
 + choose use mode
 	(contest: create a dir with testcases(in&out) ,
