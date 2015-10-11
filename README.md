@@ -1,6 +1,3 @@
-Hi
-This is post contains a description of the KudosJudge project, its global architecture, and the needed information to contribute on the project.
-
 
 What is KudosJudge ?
 --------------------------------
