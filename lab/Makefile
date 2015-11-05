@@ -1,7 +1,7 @@
 FILE=cgroup
 
 all: cgroup.c
-	gcc cgroup.c -o all -lcgroup
+	gcc cgroup.c -o all -lcgroup -lrt
 
 
 

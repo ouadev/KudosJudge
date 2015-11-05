@@ -25,4 +25,6 @@ requirements:
 
 
 ###### notes ###########
-clean the $LD_LIBRARY_PATH  environment variable
++ clean the $LD_LIBRARY_PATH  environment variable
++ detect (Permission Denied) kind of stuff in submissions, then make sure to tag the corresponding user.
++ give the possibility to the judge user to log into the jug_rootfs (opne them a bash), and install what it needs, with full permissions.

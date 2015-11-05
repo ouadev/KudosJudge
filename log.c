@@ -1,25 +1,49 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <stdarg.h>
+#include <string.h>
 #include "log.h"
 
 
 
 
 
-void debug(char* message){
-	printf("%s\n",message?message:"unknown debug message");
+void debug(char* message,...){
+	char dbg_msg[400];
+	va_list args;
+	va_start(args,message);
+	vsprintf(dbg_msg,message,args);
+	va_end(args);
+	fprintf(stderr,"%s\n",dbg_msg);
+	
 }
 
 void debugl(){
-	printf("(%d:%s)\n",errno,strerror(errno));
+	fprintf(stderr,"(%d:%s)\n",errno,strerror(errno));
 }
 
-void debugll(char*message){
-	printf("%s (%d,%s)\n",message?message:"unknown msg",errno,strerror(errno));
+void debugll(char*message,...){
+	char* linux_error=strerror(errno);
+	char* dbg_msg=(char*)malloc(strlen(message)+strlen(linux_error)+240);
+
+	va_list args;
+	va_start(args,message);
+	vsprintf(dbg_msg,message,args);
+	va_end(args);
+	sprintf(dbg_msg,"%s : (%d,%s)",dbg_msg,errno,linux_error);
+	fprintf(stderr,"%s\n",dbg_msg);
 }
 
-void debugt(char*tag,char*message){
-	printf("%s: %s\n",tag,message);
+void debugt(char*tag,char*message,...){
+	char* dbg_msg=(char*)malloc(strlen(message)+strlen(tag)+120);
+	va_list args;
+	va_start(args,message);
+	vsprintf(dbg_msg,message,args);
+	va_end(args);
+	//
+
+	fprintf(stderr, "%s: %s\n",tag,dbg_msg);
 }
 

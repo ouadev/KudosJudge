@@ -1,7 +1,8 @@
 # Global Makefile to compile (gcc -c) the libraries used in the project, and its components
 SUBDIRS=iniparser
+
 #compile root directory
-target: subdirs log.o config.o ramfs.o
+all: subdirs log.o config.o ramfs.o sandbox.o
 
 log.o: log.c
 	gcc -c log.c -o log.o
@@ -11,12 +12,15 @@ config.o:config.c
 
 ramfs.o:ramfs.c
 	gcc -c ramfs.c -o ramfs.o
+
+sandbox.o:sandbox.c
+	gcc -c sandbox.c -o sandbox.o 
+	
 #compile subdirs
 .PHONY: subdirs $(SUBDIRS)
 subdirs: $(SUBDIRS)
 $(SUBDIRS):
 	make -C $@
-
 
 
 #clean
