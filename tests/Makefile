@@ -1,9 +1,10 @@
 
 
 #test-sandbox
-test_sandbox: test_sandbox.o
-	gcc test_sandbox.o ../iniparser/iniparser.o ../config.o ../log.o ../sandbox.o \
-	-o test_sandbox -lcgroup 
+test_sandbox: test_sandbox.o  ../iniparser/iniparser.o ../config.o ../log.o ../sandbox.o ../compare.o
+	gcc test_sandbox.o ../iniparser/iniparser.o ../config.o ../log.o ../sandbox.o ../compare.o \
+	-o test_sandbox -lcgroup
+	cd .. && make -f Makefile
 
 test_sandbox.o: test_sandbox.c
 	gcc -c test_sandbox.c -o test_sandbox.o 

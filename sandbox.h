@@ -38,19 +38,7 @@
  #include <sys/signalfd.h>
 
  #include "config.h"
-
- /**
- * Global Variables
- */
- //the pid of the parent of the execution process.
-int innerwatcher_pid;
-//the output pipe to the judge daemon.
-int out_pipe[2];
-//file descriptor to receive signal from the executing submission
-int sigxcpu_handler_fd;
-//indicates the state of the execution of the submission process.
-//0:not started, 1:started, 2:cannot be killed, 3: killed
-int execution_state;
+#include "compare.h"
 /**
 * Sandbox structure
 * holds all the basic information about the sandbox
@@ -62,6 +50,7 @@ struct sandbox{
 	int use_setrlimit;	///< wether to use setrlimit : resources limit in linux.
 	int mem_limit_mb_default;
 	int time_limit_ms_default;
+	int walltime_limit_ms_default;
 	int stack_size_mb_default;
 	//sandbox state
 	int nbr_instances;
@@ -75,8 +64,28 @@ struct run_params{
 	int mem_limit_mb;	 ///< limit of memory usage per process, in megabytes
 	int time_limit_ms;	 ///< limit of time assigned to the process, in miliseconds
 	int stack_size_mb;	///< limit of allowed stack, in megabytes.
-	
+	int fd_datasource;	///< where the submission acquire its inputs, it can be either in or out
+	int fd_datasource_dir;	///< is it a fd where the user writes (1), or an fd to be read from by the Executer (0)
+
+	int fd_output_ref;		///< file descriptor where we get the correct output
+	int(*compare_output)(int,char*,int);	///< address to a function where the comparaison is done
 };
+ /**
+ * Global Variables
+ */
+ //the pid of the parent of the execution process.
+int innerwatcher_pid;
+//the output pipe to the judge daemon. where the submission prints.
+int out_pipe[2];
+//the input pipe, which we use to feed the submission with data
+int in_pipe[2];
+//file descriptor to receive signal from the executing submission
+int sigxcpu_handler_fd;
+//indicates the state of the execution of the submission process.
+//0:not started, 1:started, 2:cannot be killed, 3: killed
+int execution_state;
+
+
 
 
 /**
@@ -122,6 +131,11 @@ int jug_sandbox_run(struct run_params* run_params_struct,
 
 //5 seconds timelimit handler
 void timeout_handler(int sig);
+
+
+
 //cpu consumed handler
 static void rlimit_cpu_handler(int sig);
+
+
 #endif

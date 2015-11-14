@@ -2,7 +2,7 @@
 SUBDIRS=iniparser
 
 #compile root directory
-all: subdirs log.o config.o ramfs.o sandbox.o
+all: subdirs log.o config.o ramfs.o sandbox.o compare.o
 
 log.o: log.c
 	gcc -c log.c -o log.o
@@ -16,6 +16,9 @@ ramfs.o:ramfs.c
 sandbox.o:sandbox.c
 	gcc -c sandbox.c -o sandbox.o 
 	
+compare.o:compare.c
+	gcc -c compare.c -o compare.o
+	
 #compile subdirs
 .PHONY: subdirs $(SUBDIRS)
 subdirs: $(SUBDIRS)
@@ -25,6 +28,6 @@ $(SUBDIRS):
 
 #clean
 clean:
-	rm log.o config.o ramfs.o iniparser/iniparser.o
+	rm log.o config.o ramfs.o iniparser/iniparser.o sandbox.o compare.o
 
 
