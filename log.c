@@ -3,6 +3,7 @@
 #include <string.h>
 #include <errno.h>
 #include <stdarg.h>
+#include <unistd.h>
 #include <string.h>
 #include "log.h"
 
@@ -47,3 +48,15 @@ void debugt(char*tag,char*message,...){
 	fprintf(stderr, "%s: %s\n",tag,dbg_msg);
 }
 
+
+//
+void print_bytes(char*buffer,int len){
+	int i=0;
+	for(i=0;i<len;i++){
+		if(buffer[i]=='\n')
+			fprintf(stderr,"{%02x}",buffer[i]);
+		fprintf(stderr,"%02x",buffer[i]);
+
+	}
+	fprintf(stderr,"\n");
+}

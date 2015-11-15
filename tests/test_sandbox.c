@@ -21,10 +21,10 @@ int main(int argc, char*argv[]){
 		return 1;
 	}
 	
-	int outfd=open("/tmp/dup.data",O_CREAT| O_TRUNC | O_WRONLY,S_IWUSR|S_IRUSR|S_IRGRP|S_IROTH);
-	int infd=open("/tmp/script",O_RDWR);
-	int rightfd=open("/tmp/correct.data",O_RDWR);
-	int stat=fcntl(infd,F_GETFL);
+//	int outfd=open("/tmp/dup.data",O_CREAT| O_TRUNC | O_WRONLY,S_IWUSR|S_IRUSR|S_IRGRP|S_IROTH);
+	int infd=open("/home/odev/jug/tests/problems/twins/twins.in",O_RDWR);
+	int rightfd=open("/home/odev/jug/tests/problems/twins/twins.out",O_RDWR);
+
 
 	struct run_params runp;
 	runp.mem_limit_mb=1220000;
@@ -35,7 +35,11 @@ int main(int argc, char*argv[]){
 	runp.compare_output=compare_output;
 	runp.fd_output_ref=rightfd;
 	char* arg_vector[]={"/bin/sh",NULL};
-	jug_sandbox_run(&runp,&sb,argv[1],arg_vector);
+	jug_sandbox_result result=jug_sandbox_run(&runp,&sb,argv[1],arg_vector);
+	debugt("test_sandbox","Executer result is : %s",jug_sandbox_result_str(result));
+
+	close(infd);
+	close(rightfd);
 
 	return 0;
 }

@@ -7,7 +7,7 @@
  * futur dev: implement our own libcgroup, because it just read and write to a mounted filesystem type "cgroup"
  *
  */
- //TODO: test cgroup when libcgroup-bin is absent.
+//TODO: test cgroup when libcgroup-bin is absent.
 #ifndef JUG_SANDBOX
 #define JUG_SANDBOX
 
@@ -17,7 +17,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <libcgroup.h>
- #include <pwd.h>
+#include <pwd.h>
 #include <grp.h>
 
 #include <sys/utsname.h>
@@ -26,23 +26,23 @@
 #include <sys/resource.h>
 #include <sys/time.h>
 
- #include <errno.h>
- #include <memory.h>
+#include <errno.h>
+#include <memory.h>
 
 #include <signal.h>
 #include <time.h>
- #include <fcntl.h>
+#include <fcntl.h>
 
- #include <sys/types.h>
- #include <sys/stat.h>
- #include <sys/signalfd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/signalfd.h>
 
- #include "config.h"
+#include "config.h"
 #include "compare.h"
 /**
-* Sandbox structure
-* holds all the basic information about the sandbox
-*/
+ * Sandbox structure
+ * holds all the basic information about the sandbox
+ */
 struct sandbox{
 	//parameters
 	char* chroot_dir;	 ///< path to the root fs to use (to chroot into)
@@ -58,8 +58,30 @@ struct sandbox{
 };
 
 /**
-* parameter of run() functio
-*/
+ * enumeration of the Executer's different returns
+ */
+typedef enum{
+	JS_CORRECT,JS_WRONG,JS_TIMELIMIT,JS_WALL_TIMELIMIT,JS_MEMLIMIT,
+	JS_RUNTIME,JS_PIPE_ERROR,JS_COMP_ERROR,JS_UNKNOWN}
+jug_sandbox_result;
+/*
+ * enumaration of the states of the execution process
+ */
+
+typedef enum{
+	JS_EXEC_NOTSTARTED,		//< nothing is done yet
+	JS_EXEC_RUNNING,		//<	submission is running
+	JS_EXEC_UNKILLABLE,		//<	failed to kill the submission
+	JS_EXEC_KILLED,			//< sumission is killed by an alarm (walltime limit)
+	JS_EXEC_SUICIDE,		//< submission consumed all its resource and killed by the kernel.
+	JS_EXEC_EXITED,			//< submission safely exited
+	JS_EXEC_DONE,			//< the execution is done, & there is nothing to go.
+	JS_EXEC_DONE_UNKILLABLE	//< we're done watching, but the submission still running due to error
+} jug_sandbox_exec_state;
+/**
+ * parameter of run() function
+ * a set of parameters to be handed to the runner, in order to judge a program's output
+ */
 struct run_params{
 	int mem_limit_mb;	 ///< limit of memory usage per process, in megabytes
 	int time_limit_ms;	 ///< limit of time assigned to the process, in miliseconds
@@ -67,13 +89,15 @@ struct run_params{
 	int fd_datasource;	///< where the submission acquire its inputs, it can be either in or out
 	int fd_datasource_dir;	///< is it a fd where the user writes (1), or an fd to be read from by the Executer (0)
 
-	int fd_output_ref;		///< file descriptor where we get the correct output
-	int(*compare_output)(int,char*,int);	///< address to a function where the comparaison is done
+	int fd_output_ref;		///< file descriptor where we get the correct output, the user should manager close() of this fd
+	int(*compare_output)(int,char*,int,int);	///< address to a function where the comparaison is done
+
+	jug_sandbox_result result;		//<  where we should put the result of the execution
 };
- /**
+/**
  * Global Variables
  */
- //the pid of the parent of the execution process.
+//the pid of the parent of the execution process.
 int innerwatcher_pid;
 //the output pipe to the judge daemon. where the submission prints.
 int out_pipe[2];
@@ -83,59 +107,61 @@ int in_pipe[2];
 int sigxcpu_handler_fd;
 //indicates the state of the execution of the submission process.
 //0:not started, 1:started, 2:cannot be killed, 3: killed
-int execution_state;
+jug_sandbox_exec_state execution_state;
 
 
 
 
 /**
-* @desc init the sandbox
-* @param sandbox_struct a pointer to a sandbox structre to be filled
-* @return 0 if succeded, non-zero otherwise.
-*/
+ * @desc init the sandbox
+ * @param sandbox_struct a pointer to a sandbox structre to be filled
+ * @return 0 if succeded, non-zero otherwise.
+ */
 
 int jug_sandbox_init(struct sandbox* sandbox_struct);
 
 /**
-* @desc create the cgroup representing the context of the sandbox.
-* @param sandbox_cgroup libcgroup structure representing a cgroup (read libcgroup doc)
-* @param sandbox_struct the sandbox structure that contains the sandbox parameters
-* @return 0 in success
-*/
+ * @desc create the cgroup representing the context of the sandbox.
+ * @param sandbox_cgroup libcgroup structure representing a cgroup (read libcgroup doc)
+ * @param sandbox_struct the sandbox structure that contains the sandbox parameters
+ * @return 0 in success
+ */
 int jug_sandbox_create_cgroup(struct cgroup* sandbox_cgroup,struct sandbox* sandbox_struct);
 
 /**
-* @desc Run a program inside the sandbox (the main function)
-*
-*
-* @note The Threading Manager should keep a pool of threads to reduce the overhead
-* 		of launching a thread for each submission, and then kill it.
-*/
-	//clone into new namespaces.
-	//redirecting stuff IDontKnow
-	//chroot/fs_ns into the jug_rootfs
-	//parameter the cgroup/setrlimit
-	//watch for signals/(execution timeout)
-	//kill it if it's possible/freeze if cgroups
-	//control writing operations to /tmp.
-	//fetch data from the std_out of the binary.
+ * @desc Run a program inside the sandbox (the main function)
+ *
+ *
+ * @note The Threading Manager should keep a pool of threads to reduce the overhead
+ * 		of launching a thread for each submission, and then kill it.
+ */
+//clone into new namespaces.
+//redirecting stuff IDontKnow
+//chroot/fs_ns into the jug_rootfs
+//parameter the cgroup/setrlimit
+//watch for signals/(execution timeout)
+//kill it if it's possible/freeze if cgroups
+//control writing operations to /tmp.
+//fetch data from the std_out of the binary.
 
 
 int jug_sandbox_run(struct run_params* run_params_struct,
-	struct sandbox* sandbox_struct,
-	char* binary_path,
-	char*argv[]);
+		struct sandbox* sandbox_struct,
+		char* binary_path,
+		char*argv[]);
 
 
- int jug_sandbox_child(void* arg);
+int jug_sandbox_child(void* arg);
 
 //5 seconds timelimit handler
 void timeout_handler(int sig);
-
-
 
 //cpu consumed handler
 static void rlimit_cpu_handler(int sig);
 
 
+/*
+ * @desc print the jug_sandbox_result value in human-readible format
+ */
+const char* jug_sandbox_result_str(jug_sandbox_result result);
 #endif

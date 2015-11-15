@@ -38,10 +38,12 @@ char buffer[READ_SIZE];		//< a buffer
  * @desc receive
  * @param rx a chunk of data, supposedly received from the submission.
  * @param size the size of rx
+ * @param end boolean value indicates if the submission is done producing output
  * @return returns 0 if output is equal,
+ * @note in the last call to compare_output (end==1), there will be no comparing done. rx may be NULL
  */
 
-int compare_output(int fd_out_ref,char* rx,int size);
+int compare_output(int fd_out_ref,char* rx,int size,int end);
 
 
 

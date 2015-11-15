@@ -19,5 +19,6 @@ void debugl();
 void debugll(char*message,...);
 /*debug by a tagged message*/
 void debugt(char*tag,char*message,...);
-
+/*fprintf a fixed length of bytes.*/
+void print_bytes(char*buffer,int len);
 #endif
