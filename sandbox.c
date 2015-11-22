@@ -1,8 +1,9 @@
 #include "sandbox.h"
 
 /*
-//TODO: rewrite the watcher loop to tell walltime limit from time limit.
-//TODO: a config paramter to turn on/off the simultaneous comparing.
+
+//TODO: rewrite the watcher loop to tell walltime limit from time limit. and memory limits too
+//TODO: a config parameter to turn on/off the simultaneous comparing.
 //TODO: think about using mount namespaces instead of chroot.
 //TODO: remember to check the health of the rootfs before begining.
 //TODO: receive cgroup limit expiration event.
@@ -16,7 +17,492 @@
 
  */
 
+/**
+ * medium structure
+ */
+struct clone_child_params{
+	struct run_params* run_params_struct;
+	struct sandbox* sandbox_struct;
+	char* binary_path;
+	char**argv;
+};
 
+
+
+
+/**
+ * jug_sandbox_run()
+ * + the sandbox is supposedly inited
+ * + if cgroups are not used, use setrlimit to limit memory usage
+ *
+ */
+//TODO: change memory cgroup limit for each run
+int jug_sandbox_run(struct run_params* run_params_struct,
+		struct sandbox* sandbox_struct,
+		char* binary_path,
+		char*argv[]){
+	//some checking
+	//check fd_in a fd_out
+	int fail;
+	int fd_datasource,fd_datasource_dir,fd_datasource_flags,fd_datasource_status;
+	fd_datasource=run_params_struct->fd_datasource;
+	fd_datasource_dir=run_params_struct->fd_datasource_dir;
+
+	if( (fd_datasource_flags=fcntl(fd_datasource,F_GETFD) )<0 ){
+		debugt("jug_sandbox_run","fd_datasource is not valid");
+		return -4;
+	}
+	if((fd_datasource_flags&FD_CLOEXEC) ){
+		debugt("jug_sandbox_run","fd_datasource is declared close-on-exec");
+		return -5;
+	}
+	fd_datasource_status=fcntl(fd_datasource,F_GETFL);
+
+	if( ! (fd_datasource_status&O_RDWR)){
+		if( fd_datasource_dir==0 &&  !(fd_datasource_status&O_RDONLY) ){
+			debugt("jug_sandbox_run","fd_datasource dir 0 is not readible , (%d,%d)",fd_datasource_status&O_RDWR,fd_datasource_status&O_RDONLY);
+			return -6;
+		}
+		if(fd_datasource_dir && !(fd_datasource_status&O_WRONLY)){
+			debugt("jug_sandbox_run","fd_datasource dir 1 is not writable ");
+			return -7;
+		}
+	}
+
+	////init the out pipe
+	if( pipe(out_pipe)==-1){
+		debugt("jug_sandbox_run","cannot create output pipe");
+		return -3;
+	}
+	if(pipe(in_pipe)==-1){
+		debugt("jug_sandbox_run","cannot create input pipe");
+		return -8;
+	}
+
+	close(in_pipe[0]);
+
+	if(fd_datasource_dir){
+		fail=dup2(in_pipe[1],fd_datasource);
+		if(fail==-1){
+			debugt("jug_sandbox_run","cannot dup2 in_pipe: %s",strerror(errno));
+			return -9;
+		}
+	}
+
+	/* receive output at out_pipe[0], */
+	//init the execution state, not started yet.
+	execution_state=JS_EXEC_NOTSTARTED;
+	//clone inside the sandbox
+	struct clone_child_params* ccp=(struct clone_child_params*)malloc(sizeof(struct clone_child_params)*1);
+	ccp->run_params_struct=run_params_struct;
+	ccp->sandbox_struct=sandbox_struct;
+	ccp->binary_path=binary_path;
+	ccp->argv=argv;
+	char* stack;
+	char *stacktop;
+	int STACK_SIZE=run_params_struct->stack_size_mb*1000000;
+	stack=(char*)malloc(STACK_SIZE);
+	if(!stack){
+		debugt("jug_sandbox_run","cannot malloc the stack for this submission");
+		return -1;
+	}
+	stacktop=stack;
+	stacktop+=STACK_SIZE;
+	pid_t pid=clone(jug_sandbox_child,stacktop,CLONE_NEWUTS|CLONE_NEWNET|CLONE_NEWPID|CLONE_NEWNS|SIGCHLD,(void*)ccp);
+	if(pid==-1){
+		debugt("jug_sandbox_run","cannot clone() the submission executer, linux error: %s",strerror(errno));
+		return -2;
+	}
+	//set the global inner watcher process id
+	innerwatcher_pid=pid;
+	/*
+	 *
+	 * read the output from the submission
+	 *
+	 */
+	int flags=fcntl(out_pipe[0],F_GETFL,0);
+	fcntl(out_pipe[0],F_SETFL,flags|O_NONBLOCK);
+	pid_t wpid;
+	int count=0,endoffile=0,iw_status,nequal,spawn_succeeded=1;
+	char buffer[256];
+	jug_sandbox_result result;
+
+	while(1){
+		pid_t wpid=waitpid(innerwatcher_pid,&iw_status,WNOHANG);
+		if(wpid<0){
+			debugt("spawner","error waiting for the inner watcher");
+			break;
+		}else if(wpid>0){
+			if(WIFEXITED(iw_status)){
+				//normal exit (voluntary exit)
+				int exit_code=WEXITSTATUS(iw_status);
+				if(exit_code<0)
+					spawn_succeeded=0;
+				else{
+					result=(jug_sandbox_result)exit_code;
+				}
+				debugt("spawner","watcher exited normally, exit code : %d",exit_code);
+				break;
+
+			}else if(WIFSIGNALED(iw_status)){
+				//killed by a signal
+				debugt("spawner","watcher killed by a signal, signal: %d",WTERMSIG(iw_status));
+				result=JS_UNKNOWN;
+				break;
+			}else{
+				debugt("spawner","unhandled event from the watcher");
+				result=JS_UNKNOWN;
+				break;
+			}
+		}
+	}
+	if(spawn_succeeded)
+		debugt("spawner","verdict from exit code : %s",
+			jug_sandbox_result_str(result));
+	else
+		debugt("spawner","spawning failed before launching the binary");
+
+	//	while( 1){
+	//		if(execution_state==JS_EXEC_DONE) break;//state:killed & output is managed
+	//		if(execution_state==JS_EXEC_RUNNING){
+	//			pid_t wpid=waitpid(innerwatcher_pid,&iw_status,WNOHANG);
+	//			if(wpid<0){
+	//				//need to get out of the loop
+	//				debugt("jug_run","Error waiting for the Inner Watcher : %s",strerror(errno));
+	//
+	//				continue;
+	//			}else if(wpid>0){
+	//				//something happened to the inner watcher.
+	//				if (WIFEXITED(iw_status)){
+	//					debugt("jug_run","Inner watcher exited with code %d",WEXITSTATUS(iw_status));
+	//					execution_state=JS_EXEC_EXITED;
+	//					//break;
+	//				}
+	//				else if(WIFSIGNALED(iw_status)){
+	//					debugt("jug_run","Inner watcher received a signal : %d",WTERMSIG(iw_status));
+	//					//because we are not abe to execute rlimit callbacks (handlers)
+	//					if(execution_state!=JS_EXEC_KILLED) execution_state=JS_EXEC_SUICIDE;
+	//					//CHECK: if the signal is 'segmentation fault' rise 'RUNTIME ERROR' and leave
+	//					//CHECK: if the signal is SIGALRM, rise 'WALLTIME_LIMIT'
+	//				}else{
+	//					debugt("jug_run","Inner watcher event received, but not exited & not signaled");
+	//					execution_state=JS_EXEC_KILLED;
+	//				}
+	//			}
+	//		}
+	//
+	//
+	//
+	//		if(endoffile){
+	//			if(execution_state!=JS_EXEC_RUNNING){
+	//				execution_state= (execution_state==JS_EXEC_UNKILLABLE)?
+	//						JS_EXEC_DONE_UNKILLABLE:JS_EXEC_DONE;
+	//				break;
+	//			}else
+	//				continue;
+	//		}
+	//		//use simultaneous read
+	//		count=read(out_pipe[0],buffer,255);
+	//		if(count!=-1) write(STDERR_FILENO,buffer,count);
+	//		if(count<0 ){
+	//			if(errno==EAGAIN){
+	//				if(		execution_state==JS_EXEC_EXITED ||
+	//						execution_state==JS_EXEC_KILLED ||
+	//						execution_state==JS_EXEC_SUICIDE ||
+	//						execution_state==JS_EXEC_UNKILLABLE){
+	//					//actually in case the submission is killed or suicide, we won't need to compare at all
+	//					//last call to compare_output
+	//					nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,1);
+	//					if(nequal==0)			result=JS_CORRECT;
+	//					else if(nequal>0)		result=JS_WRONG;
+	//					else					result=JS_COMP_ERROR;
+	//
+	//					if(execution_state==JS_EXEC_UNKILLABLE)
+	//						execution_state=JS_EXEC_DONE_UNKILLABLE; //done but failed to kill the innerwatcher
+	//					else
+	//						execution_state=JS_EXEC_DONE;//killed & output managed
+	//				}
+	//				continue;
+	//			}
+	//			else{
+	//				result=JS_PIPE_ERROR;
+	//				//emulate alarm timeout signal, to kill the children
+	//				//this call is supposed to change execution_state value accordingly
+	//				kill(getpid(),SIGALRM);
+	//				break;
+	//			}
+	//		}
+	//		//end of file received
+	//		else if(count==0){
+	//			endoffile=1;
+	//			nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,1);
+	//			if(nequal==0)			result=JS_CORRECT;
+	//			else if(nequal>0)		result=JS_WRONG;
+	//			else					result=JS_COMP_ERROR;
+	//		}
+	//		//call the compare function so it decides if we should shut the submission down.
+	//		else{
+	//
+	//			nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,0);
+	//			if(nequal==0)		result=JS_CORRECT;
+	//			else if(nequal>0)	result=JS_WRONG;
+	//			else				result=JS_COMP_ERROR;
+	//			//if an inequality is reported by the comparing function, and simultaneous mode is on, kill.
+	//			if(nequal != 0){
+	//				//emulate alarm timeout signal, to kill the children
+	//				//this call is supposed to change execution_state value accordingly
+	//				kill(getpid(),SIGALRM);
+	//				break;
+	//			}
+	//		}
+	//
+	//
+	//	}
+
+
+	close(out_pipe[0]);
+	close(out_pipe[1]);
+
+	/*
+	 */
+
+	ccp->run_params_struct->result=result;
+	return 0;
+}
+
+
+/**
+ * jug_sandbox_child()
+ *
+ *
+ */
+int jug_sandbox_child(void* arg){
+	int fail=0;
+	//
+	debugt("jug_sandbox_child","InnerWatcher starting...");
+	//
+	struct clone_child_params* ccp=(struct clone_child_params*)arg;
+
+	sethostname("freeJugSandbox",30);
+	setdomainname("freeJugDomain",30);
+	//we're using linux cgroups
+	if(ccp->sandbox_struct->use_cgroups){
+		fail=cgroup_attach_task(ccp->sandbox_struct->sandbox_cgroup);
+		if(fail){
+			debugt("jug_sandbox_child",cgroup_strerror(fail) );
+			exit(-1);
+		}
+	}
+
+	//chrooting
+	char wd[100];
+	fail=chdir(ccp->sandbox_struct->chroot_dir);
+	if(fail){
+		debugt("jug_sandbox_child","chdir() failed");
+		exit(-2);
+	}
+
+	fail= chroot(".");
+	if( fail){
+		debugt("jug_sandbox_child","error chrooting, linux error : %s\n",strerror(errno));
+		exit(-3);
+	}
+
+	//remount the proc so it prints the new stuff (CLONE_NEWPID to work)
+	//the clone CLONE_NEWNS makes it possible that each submission has its own mount points
+	fail= umount("/proc");
+	if(fail && errno!=EINVAL){
+		//because EINVAL means /proc is not a mount point
+		debugt("jug_sandbox_child","error unmount sandbox /proc, linux error : (%d,%s)\n",errno,strerror(errno));
+		exit(-4);
+	}
+	fail= mount("none","/proc","proc",MS_RDONLY,NULL);
+	if(fail){
+		debugt("jug_sandbox_child","error remounting sandbox /proc, linux error : %s\n",strerror(errno));
+		exit(-4);
+	}
+
+	//pipe stuff, doing it in InnerWatcher side
+	//redirect stdout to the output transferring pipe
+//	while (1){
+//		fail=dup2(out_pipe[1],STDOUT_FILENO);
+//		if(fail==-1){
+//			debugt("jug_sandbox_child","cannot dup2 the output of the pipe : %s",strerror(errno));
+//			if(errno==EINTR)
+//				debugt("jug_sandbox_child","interruption");
+//			else return -5;
+//		}else break;
+//	}
+
+//	//if the user provides a direct fd to read from, redirect the stdin to it
+//	if(ccp->run_params_struct->fd_datasource_dir==0){
+//		dup2(ccp->run_params_struct->fd_datasource,STDIN_FILENO);
+//		//but, if they provide a fd where they supposed to write the data, redirect stdin to the
+//		// receiving end of the input transferring pipe.
+//	}else{
+//		dup2(in_pipe[0],STDIN_FILENO);
+//	}
+
+	close(out_pipe[0]);
+	close(out_pipe[1]);
+	close(in_pipe[0]);
+	close(in_pipe[1]);
+
+	//Fork to the submission binary
+	//set up an alarm of maximum execution (wall clock) time.
+	signal(SIGALRM,timeout_handler);
+	alarm(ccp->sandbox_struct->walltime_limit_ms_default/1000);
+	debugt("walltime","%d",ccp->sandbox_struct->walltime_limit_ms_default/1000);
+	execution_state=JS_EXEC_NOTSTARTED;
+	////fork
+	pid_t ns_pid=fork();
+	if(ns_pid<0){
+		debugt("watcher","cannot fork the grandchild, exiting...");
+		exit(-6);
+	}
+	if(ns_pid>0){
+		//i'm the direct parent of the submission
+		binary_pid=ns_pid;
+		execution_state=JS_EXEC_RUNNING;
+		//close(out_pipe[0]);
+		//close(out_pipe[1]);
+		unsigned long mem_used=0;
+		int exitstatus,stop_sig;
+		int sigxcpu_received=0,sigsegv_received=0,mem_limit_exceeded=0,bin_killed=0;
+		int d_=0;
+		while(1){
+			wait(&exitstatus);
+			if(WIFSTOPPED(exitstatus)){
+				stop_sig=WSTOPSIG(exitstatus);
+				debugt("watcher","binary stopped by the signal : %d",stop_sig);
+				//try to detect out-of-memory stopping
+				if(stop_sig==SIGXCPU && !sigxcpu_received){
+					debugt("watcher","binary received SIGXCPU");
+					sigxcpu_received=1;
+				}
+
+				if(stop_sig==SIGSEGV){
+					mem_used=jug_sandbox_memory_usage(binary_pid);
+					if(mem_used>=0 && (mem_used/1000000) >= ccp->run_params_struct->mem_limit_mb)
+						mem_limit_exceeded=1;
+					//else : it's a runtime error.
+
+				}
+
+				fail = ptrace(PTRACE_CONT,ns_pid,NULL,NULL);
+				//sleep(1);
+				debugt("watcher","binary continuing ...");
+				if(fail==-1) debugt("watcher","ptrace_cont failed");
+			}
+			else if(WIFEXITED(exitstatus)){
+				debugt("watcher","binary exited, exit code : %d",WEXITSTATUS(exitstatus) );
+				//we will return JS_CORRECT
+				break;
+			}
+			else if(WIFSIGNALED(exitstatus)){
+				debugt("watcher","binary killed by a signal : %d",WTERMSIG(exitstatus) );
+				debugt("watcher","checking for memory limit");
+				//CHECK: also exit with the verdict.
+				bin_killed=1;
+				mem_used=jug_sandbox_memory_usage(binary_pid);
+				if( (mem_used/1000000) >= ccp->run_params_struct->mem_limit_mb)
+					mem_limit_exceeded=1;
+
+				break;
+			}
+			else{
+				debugt("watcher","binary received unknown event, status : %d",exitstatus );
+				break;
+			}
+		}
+
+		fflush(stdout);
+		if(sigxcpu_received)
+			exit(JS_TIMELIMIT);
+		else if(execution_state==JS_EXEC_KILLED)
+			exit(JS_WALL_TIMELIMIT);
+		else if(sigsegv_received || bin_killed){
+			if(mem_limit_exceeded)
+				exit(JS_MEMLIMIT);
+			else exit(JS_RUNTIME);
+		}else{
+			debugt("watcher","returning JS_CORRECT...");
+			exit(JS_CORRECT);
+		}
+
+	}
+
+	//GrandChild code (binary)
+	//ptraceed ...
+	ptrace(PTRACE_TRACEME,0,NULL,NULL);
+	//set rlimits
+	//limit cpu usage
+	struct rlimit cpu_rlimit;
+	getrlimit(RLIMIT_CPU,&cpu_rlimit);
+	cpu_rlimit.rlim_cur=ccp->run_params_struct->time_limit_ms/1000;
+	cpu_rlimit.rlim_max=cpu_rlimit.rlim_cur+2;//2 seconds of margin
+	fail=setrlimit(RLIMIT_CPU,&cpu_rlimit);
+	if(fail){
+		debugt("jug_sandbox_run","cannot set cpu rlimit");
+		exit(100);
+	}
+	//limit memory usage
+	struct rlimit as_rlimit;
+	as_rlimit.rlim_cur=ccp->run_params_struct->mem_limit_mb*1000000;
+	as_rlimit.rlim_max=as_rlimit.rlim_cur;
+	fail=setrlimit(RLIMIT_AS,&as_rlimit);
+	if(fail){
+		debug("jug_sandbox_run","cannot setrlimit Adress Space");
+		exit(101);
+	}
+
+
+	//drop all the priveleges
+	struct passwd* pwd_nobody=getpwnam("nobody");
+	uid_t nobody_id=pwd_nobody->pw_uid;
+	fail=setgid(pwd_nobody->pw_gid);
+	if(fail){
+		debugt("jug_sandbox_child","error setgid(), exiting ...");
+		exit(110);
+	}
+
+	fail=setgroups(0,NULL);
+	if(fail<0){
+		debugt("jug_sandbox_child","cannot remove supplementary groups, exiting ...");
+		exit(111);
+	}
+
+	fail=setuid(pwd_nobody->pw_uid);
+	if(fail){
+		printf("fail setuid, exiting ...");
+		exit(112);
+	}
+
+
+	if(!setuid(0)){
+		debugt("jug_sandbox_child","still root, exiting ...");
+		exit(113);
+	}else{
+		debug("root properly droped :) ");
+	}
+
+	debugt("jug_sandbox_child","EUID:%d, RUID: %d",geteuid(),getuid());
+	gid_t listg[20];
+
+	//run the binary
+	//fflush(stdout);
+
+
+	execvp(ccp->binary_path,ccp->argv);
+	return -999;
+}
+
+
+
+/**
+ * jug_sandbox_init()
+ *  all the initialization that should be done before executing a submission.
+ */
 
 int jug_sandbox_init(struct sandbox* sandbox_struct){
 
@@ -29,7 +515,7 @@ int jug_sandbox_init(struct sandbox* sandbox_struct){
 	if( (value=jug_get_config("Executer","mem_limit_mb") )==NULL ){
 		debugt("sandbox","cannot read mem_limit_mb config");
 		return -1;
-	} 
+	}
 
 	sb->mem_limit_mb_default=atoi(value);
 
@@ -149,438 +635,6 @@ int jug_sandbox_create_cgroup(struct cgroup* sandbox,struct sandbox* sandbox_str
 
 }
 
-/**
- * medium structure
- */
-struct clone_child_params{
-	struct run_params* run_params_struct;
-	struct sandbox* sandbox_struct;
-	char* binary_path;
-	char**argv;
-};
-
-
-/**
- * jug_sandbox_run()
- * + the sandbox is supposedly inited
- * + if cgroups are not used, use setrlimit to limit memory usage
- *
- */
-//TODO: change memory cgroup limit for each run
-int jug_sandbox_run(struct run_params* run_params_struct,
-		struct sandbox* sandbox_struct,
-		char* binary_path,
-		char*argv[]){
-	//some checking
-	//check fd_in a fd_out
-	int fail;
-	int fd_datasource,fd_datasource_dir,fd_datasource_flags,fd_datasource_status;
-	fd_datasource=run_params_struct->fd_datasource;
-	fd_datasource_dir=run_params_struct->fd_datasource_dir;
-
-	if( (fd_datasource_flags=fcntl(fd_datasource,F_GETFD) )<0 ){
-		debugt("jug_sandbox_run","fd_datasource is not valid");
-		return -4;
-	}
-	if((fd_datasource_flags&FD_CLOEXEC) ){
-		debugt("jug_sandbox_run","fd_datasource is declared close-on-exec");
-		return -5;
-	}
-	fd_datasource_status=fcntl(fd_datasource,F_GETFL);
-
-	if( ! (fd_datasource_status&O_RDWR)){
-		if( fd_datasource_dir==0 &&  !(fd_datasource_status&O_RDONLY) ){
-			debugt("jug_sandbox_run","fd_datasource dir 0 is not readible , (%d,%d)",fd_datasource_status&O_RDWR,fd_datasource_status&O_RDONLY);
-			return -6;
-		}
-		if(fd_datasource_dir && !(fd_datasource_status&O_WRONLY)){
-			debugt("jug_sandbox_run","fd_datasource dir 1 is not writable ");
-			return -7;
-		}
-	}
-
-	////init the out pipe
-	if( pipe(out_pipe)==-1){
-		debugt("jug_sandbox_run","cannot create output pipe");
-		return -3;
-	}
-	if(pipe(in_pipe)==-1){
-		debugt("jug_sandbox_run","cannot create input pipe");
-		return -8;
-	}
-
-	close(in_pipe[0]);
-
-	if(fd_datasource_dir){
-		fail=dup2(in_pipe[1],fd_datasource);
-		if(fail==-1){
-			debugt("jug_sandbox_run","cannot dup2 in_pipe: %s",strerror(errno));
-			return -9;
-		}
-	}
-
-	/* receive output at out_pipe[0], */
-	//init the execution state, not started yet.
-	execution_state=JS_EXEC_NOTSTARTED;
-	//clone inside the sandbox
-	struct clone_child_params* ccp=(struct clone_child_params*)malloc(sizeof(struct clone_child_params)*1);
-	ccp->run_params_struct=run_params_struct;
-	ccp->sandbox_struct=sandbox_struct;
-	ccp->binary_path=binary_path;
-	ccp->argv=argv;
-	char* stack;
-	char *stacktop;
-	int STACK_SIZE=run_params_struct->stack_size_mb*1000000;
-	stack=(char*)malloc(STACK_SIZE);
-	if(!stack){
-		debugt("jug_sandbox_run","cannot malloc the stack for this submission");
-		return -1;
-	}
-	stacktop=stack;
-	stacktop+=STACK_SIZE;
-	pid_t pid=clone(jug_sandbox_child,stacktop,CLONE_NEWUTS|CLONE_NEWNET|CLONE_NEWPID|CLONE_NEWNS|SIGCHLD,(void*)ccp);
-	if(pid==-1){
-		debugt("jug_sandbox_run","cannot clone() the submission executer, linux error: %s",strerror(errno));
-		return -2;
-	}
-	//set the global inner watcher process id
-	innerwatcher_pid=pid;
-	execution_state=JS_EXEC_RUNNING;
-
-	//set up an alarm of maximum execution (wall clock) time.
-	signal(SIGALRM,timeout_handler);
-	alarm(sandbox_struct->walltime_limit_ms_default/1000);
-	/*
-	 *
-	 * read the output from the submission
-	 *
-	 */
-	int flags=fcntl(out_pipe[0],F_GETFL,0);
-	fcntl(out_pipe[0],F_SETFL,flags|O_NONBLOCK);
-	pid_t wpid;
-	int count=0,endoffile=0,iw_status,nequal;
-	char buffer[256];
-	jug_sandbox_result result;
-
-	while( 1){
-		if(execution_state==JS_EXEC_DONE) break;//state:killed & output is managed
-		if(execution_state==JS_EXEC_RUNNING){
-			pid_t wpid=waitpid(innerwatcher_pid,&iw_status,WNOHANG|WUNTRACED);
-			if(wpid<0){
-				debugt("jug_run","error waiting for the Inner Watcher : %s",strerror(errno));
-				continue;
-			}else if(wpid>0){
-				//something happened to the inner watcher.
-				if (WIFEXITED(iw_status)){
-					debugt("jug_run","inner watcher exited with code %d",WEXITSTATUS(iw_status));
-					execution_state=JS_EXEC_EXITED;
-					//break;
-				}
-				else if(WIFSIGNALED(iw_status)){
-					debugt("jug_run","inner watcher received a signal : %d",WTERMSIG(iw_status));
-					//because we are not abe to execute rlimit callbacks (handlers)
-					if(execution_state!=JS_EXEC_KILLED) execution_state=JS_EXEC_SUICIDE;
-					//CHECK: if the signal is 'segmentation fault' rise 'RUNTIME ERROR' and leave
-					//CHECK: if the signal is SIGALRM, rise 'WALLTIME_LIMIT'
-				}else{
-					debugt("jug_run","inner watcher event received, but not exited & not signaled");
-					execution_state=JS_EXEC_KILLED;
-				}
-			}
-		}
-
-
-
-		if(endoffile){
-			if(execution_state!=JS_EXEC_RUNNING){
-				execution_state= (execution_state==JS_EXEC_UNKILLABLE)?
-						JS_EXEC_DONE_UNKILLABLE:JS_EXEC_DONE;
-				break;
-			}else
-				continue;
-		}
-		//use simultaneous read
-		count=read(out_pipe[0],buffer,255);
-		if(count<0 ){
-			if(errno==EAGAIN){
-				if(		execution_state==JS_EXEC_EXITED ||
-						execution_state==JS_EXEC_KILLED ||
-						execution_state==JS_EXEC_SUICIDE ||
-						execution_state==JS_EXEC_UNKILLABLE){
-					//actually in case the submission is killed or suicide, we won't need to compare at all
-					//last call to compare_output
-					nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,1);
-					if(nequal==0)			result=JS_CORRECT;
-					else if(nequal>0)		result=JS_WRONG;
-					else					result=JS_COMP_ERROR;
-
-					if(execution_state==JS_EXEC_UNKILLABLE)
-						execution_state=JS_EXEC_DONE_UNKILLABLE; //done but failed to kill the innerwatcher
-					else
-						execution_state=JS_EXEC_DONE;//killed & output managed
-				}
-				continue;
-			}
-			else{
-				result=JS_PIPE_ERROR;
-				//emulate alarm timeout signal, to kill the children
-				//this call is supposed to change execution_state value accordingly
-				kill(getpid(),SIGALRM);
-				break;
-			}
-		}
-		//end of file received
-		else if(count==0){
-			endoffile=1;
-			nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,1);
-			if(nequal==0)			result=JS_CORRECT;
-			else if(nequal>0)		result=JS_WRONG;
-			else					result=JS_COMP_ERROR;
-		}
-		//call the compare function so it decides if we should shut the submission down.
-		nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,0);
-		if(nequal==0)		result=JS_CORRECT;
-		else if(nequal>0)	result=JS_WRONG;
-		else				result=JS_COMP_ERROR;
-		//if an inequality is reported by the comparing function, and simultaneous mode is on, kill.
-		if(nequal != 0){
-			//emulate alarm timeout signal, to kill the children
-			//this call is supposed to change execution_state value accordingly
-			kill(getpid(),SIGALRM);
-			break;
-		}
-
-
-	}
-
-
-	close(out_pipe[0]);
-	close(out_pipe[1]);
-
-	/*
-	 *
-	 * END
-	 *
-	 */
-
-
-	ccp->run_params_struct->result=result;
-	return 0;
-}
-/**
- * timout_handler()
- */
-void timeout_handler(int sig){
-	debugt("OuterWatcher"," timeout received, killing the child (InnerWatcher), sign:%d",sig);
-	//if the submission already terminated,
-	if( execution_state==JS_EXEC_SUICIDE || execution_state==JS_EXEC_KILLED) return;
-	int error=kill(innerwatcher_pid,9);
-	if(error) kill(innerwatcher_pid,9);
-	if(error){
-		//we've failed to kill the execution
-		execution_state=JS_EXEC_UNKILLABLE;
-		debugt("timeout_handler","inner watcher process %d can't be killed", innerwatcher_pid);
-		return ;
-	}
-	//cancel the alarm, in case we generated this signal manually
-	alarm(0);
-	//execution succesfully killed
-	execution_state=JS_EXEC_KILLED;
-	debugt("timeout_handler","inner watcher %d has been succesfully killed",innerwatcher_pid);
-}
-
-
-
-/**
- * rlimit_cpu_handler
- *
- */
-static void rlimit_cpu_handler(int sig){
-	//supposed sig=SIGXCPU
-	if(sig==SIGXCPU){
-		debugt("rlimit_cpu_handler","SIGXCPU received");
-
-	}else if(sig==SIGXFSZ){
-		debugt("rlimit_handler","SIGXFSZ received");
-	}
-	fflush(stdout);
-	execution_state=JS_EXEC_SUICIDE;
-}
-/**
- * jug_sandbox_child()
- *
- *
- */
-int jug_sandbox_child(void* arg){
-	int fail=0;
-	//
-	debugt("jug_sandbox_child","InnerWatcher starting...");
-	//
-	struct clone_child_params* ccp=(struct clone_child_params*)arg;
-
-	sethostname("freeJugSandbox",30);
-	setdomainname("freeJugDomain",30);
-	//we're using linux cgroups
-	if(ccp->sandbox_struct->use_cgroups){
-		fail=cgroup_attach_task(ccp->sandbox_struct->sandbox_cgroup);
-		if(fail){
-			debugt("jug_sandbox_child",cgroup_strerror(fail) );
-			exit(1);
-		}
-	}
-
-	//chrooting
-	char wd[100];
-	fail=chdir(ccp->sandbox_struct->chroot_dir);
-	if(fail){
-		debugt("jug_sandbox_child","chdir() failed");
-		exit(2);
-	}
-
-	fail= chroot(".");
-	if( fail){
-		debugt("jug_sandbox_child","error chrooting, linux error : %s\n",strerror(errno));
-		exit(3);
-	}
-
-	//remount the proc so it prints the new stuff (CLONE_NEWPID to work)
-	//the clone CLONE_NEWNS makes it possible that each submission has its own mount points
-	fail= umount("/proc");
-	if(fail && errno!=EINVAL){
-		//because EINVAL means /proc is not a mount point
-		debugt("jug_sandbox_child","error unmount sandbox /proc, linux error : (%d,%s)\n",errno,strerror(errno));
-		exit(4);
-	}
-	fail= mount("none","/proc","proc",MS_RDONLY,NULL);
-	if(fail){
-		debugt("jug_sandbox_child","error remounting sandbox /proc, linux error : %s\n",strerror(errno));
-		exit(4);
-	}
-
-	//pipe stuff, doing it in InnerWatcher side
-	//redirect stdout to the output transferring pipe
-	while (1){
-		fail=dup2(out_pipe[1],STDOUT_FILENO);
-		if(fail==-1){
-			debugt("jug_sandbox_child","cannot dup2 the output of the pipe : %s",strerror(errno));
-			if(errno==EINTR)
-				debugt("jug_sandbox_child","interruption");
-			else return 78;
-		}else break;
-	}
-
-	//if the user provides a direct fd to read from, redirect the stdin to it
-	if(ccp->run_params_struct->fd_datasource_dir==0){
-		dup2(ccp->run_params_struct->fd_datasource,STDIN_FILENO);
-		//but, if they provide a fd where they supposed to write the data, redirect stdin to the
-		// receiving end of the input transferring pipe.
-	}else{
-		dup2(in_pipe[0],STDIN_FILENO);
-	}
-
-	close(out_pipe[0]);
-	close(out_pipe[1]);
-	close(in_pipe[0]);
-	close(in_pipe[1]);
-
-	//Fork to the submission binary
-	////fork
-	pid_t ns_pid=fork();
-	if(ns_pid>0){
-		//i'm the direct father of the submission
-		//close(out_pipe[0]);
-		//close(out_pipe[1]);
-		int exitstatus;
-		wait(&exitstatus);
-		if(WIFEXITED(exitstatus))
-			debugt("child:","GrandChild exited, exit code : %d",WEXITSTATUS(exitstatus) );
-		else if(WIFSIGNALED(exitstatus))
-			debugt("child:","GrandChild signaled, signal : %d",WTERMSIG(exitstatus) );
-		else
-			debugt("child:","GrandChild exited with status : %d",exitstatus );
-
-		fflush(stdout);
-
-		exit(5);
-		//parent
-	}else if(ns_pid<0){
-		debug("cannot fork the grandchild, exiting...");
-		exit(6);
-	}
-
-	//define SIGXCPU handler
-	if(signal(SIGXCPU,rlimit_cpu_handler)==SIG_ERR){
-		debug("The Signal Is Not Assigned");
-	}
-
-
-
-	//GrandChild code
-
-
-
-	//set rlimits
-	//limit cpu usage
-	struct rlimit cpu_rlimit;
-	getrlimit(RLIMIT_CPU,&cpu_rlimit);
-	cpu_rlimit.rlim_cur=ccp->run_params_struct->time_limit_ms/1000;
-	cpu_rlimit.rlim_max=cpu_rlimit.rlim_cur+1;//2 seconds of margin
-	fail=setrlimit(RLIMIT_CPU,&cpu_rlimit);
-	if(fail){
-		debugt("jug_sandbox_run","cannot set cpu rlimit");
-		exit(100);
-	}
-	//limit memory usage
-	struct rlimit as_rlimit;
-	as_rlimit.rlim_cur=ccp->run_params_struct->mem_limit_mb*1000000;
-	as_rlimit.rlim_max=as_rlimit.rlim_cur;
-	fail=setrlimit(RLIMIT_AS,&as_rlimit);
-	if(fail){
-		debug("jug_sandbox_run","cannot setrlimit Adress Space");
-		exit(101);
-	}
-
-
-	//drop all the priveleges
-	struct passwd* pwd_nobody=getpwnam("nobody");
-	uid_t nobody_id=pwd_nobody->pw_uid;
-	fail=setgid(pwd_nobody->pw_gid);
-	if(fail){
-		debugt("jug_sandbox_child","error setgid(), exiting ...");
-		exit(110);
-	}
-
-	fail=setgroups(0,NULL);
-	if(fail<0){
-		debugt("jug_sandbox_child","cannot remove supplementary groups, exiting ...");
-		exit(111);
-	}
-
-	fail=setuid(pwd_nobody->pw_uid);
-	if(fail){
-		printf("fail setuid, exiting ...");
-		exit(112);
-	}
-
-
-	if(!setuid(0)){
-		debugt("jug_sandbox_child","still root, exiting ...");
-		exit(113);
-	}else{
-		debug("root properly droped :) ");
-	}
-
-	debugt("jug_sandbox_child","EUID:%d, RUID: %d",geteuid(),getuid());
-	gid_t listg[20];
-
-	//run the binary
-	//fflush(stdout);
-
-
-	execvp(ccp->binary_path,ccp->argv);
-	return -999;
-}
-
 
 
 /**
@@ -603,8 +657,100 @@ const char* jug_sandbox_result_str(jug_sandbox_result result){
 	return strings[(int)result];
 }
 
+/**
+ * jug_sanbdox_meomry_usage()
+ */
+//CHECK: check also the program text size, it seems like a bug to fill the memory with unused text code.
+unsigned long jug_sandbox_memory_usage(pid_t pid){
+	int procfd,r;
+	long page_size;
+	unsigned long size,resident,share,text,lib,data,dt;
+	char statm[200], content[200];
+	sprintf(statm,"/proc/%d/statm",(int)pid);
+	debugt("memory_usage","statm:%s",statm);
+	procfd=open(statm,O_RDWR);
+	if(procfd==-1){
+		debugt("memory_usage","failed to open statm : %s",strerror(errno));
+		return -1;
+	}
+	r=read(procfd,content,200);
+	if(r<0){
+		debugt("memory_usage","failed to read statm");
+		return -2;
+	}
+	content[r]='\0';
+	sscanf(content,"%ld %ld %ld %ld %ld %ld %ld",&size,&resident,&share,&text,&lib,&data,&dt);
+	page_size=sysconf(_SC_PAGESIZE);
+	//data refers to :( data section + stack section)
+	return (data/page_size);
+
+}
+
+/**
+ * timout_handler()
+ * executed in the watcher.
+ */
+void timeout_handler(int sig){
+	int error;
+	debugt("Watcher","timeout received, killing the binary (submission), sign:%d",sig);
+	if( execution_state==JS_EXEC_SUICIDE || execution_state==JS_EXEC_KILLED) return;
+	error=kill(binary_pid,SIGKILL);
+	if(error){
+		execution_state=JS_EXEC_UNKILLABLE;
+		debugt("timeout_handler","binary process %d(inside pid_ns) can't be killed", binary_pid);
+		return;
+	}
+	//cancel the alarm
+	alarm(0);
+	//execution succesfully killed
+	execution_state=JS_EXEC_KILLED;
+	debugt("timeout_handler","binary process %d (inside pid_ns) has been succesfully killed",binary_pid);
+	//if the submission already terminated,
+	//	if( execution_state==JS_EXEC_SUICIDE || execution_state==JS_EXEC_KILLED) return;
+	//	int error=kill(innerwatcher_pid,9);
+	//	if(error) kill(innerwatcher_pid,9);
+	//	if(error){
+	//		//we've failed to kill the execution
+	//		execution_state=JS_EXEC_UNKILLABLE;
+	//		debugt("timeout_handler","inner watcher process %d can't be killed", innerwatcher_pid);
+	//		return ;
+	//	}
+	//	//cancel the alarm, in case we generated this signal manually
+	//	alarm(0);
+	//	//execution succesfully killed
+	//	execution_state=JS_EXEC_KILLED;
+	//	debugt("timeout_handler","inner watcher %d has been succesfully killed",innerwatcher_pid);
+}
 
 
+
+/**
+ * rlimit_cpu_handler
+ *
+ */
+static void rlimit_cpu_handler(int sig){
+	//supposed sig=SIGXCPU
+	if(sig==SIGXCPU){
+		debugt("rlimit_cpu_handler","SIGXCPU received");
+
+	}else if(sig==SIGXFSZ){
+		debugt("rlimit_handler","SIGXFSZ received");
+	}
+	fflush(stdout);
+	execution_state=JS_EXEC_SUICIDE;
+}
+
+
+/**
+ *
+ */
+
+void parent_sig_handler(int sig){
+	if(sig==SIGINT){
+		debugt("signal","int received a sat in the parent process");
+		//kill(innerwatcher_pid,SIGALRM);
+	}
+}
 
 
 

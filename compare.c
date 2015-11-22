@@ -35,6 +35,7 @@ int compare_output(int fd_out_ref,char* rx,int size,int end){
 	}
 
 	//comparing
+
 	while(size>0){
 
 		rd=read(fd_out_ref,buffer,READ_SIZE>size?size:READ_SIZE);

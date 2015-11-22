@@ -35,7 +35,7 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/signalfd.h>
+#include <sys/ptrace.h>
 
 #include "config.h"
 #include "compare.h"
@@ -97,16 +97,15 @@ struct run_params{
 /**
  * Global Variables
  */
-//the pid of the parent of the execution process.
+//the pid of the parent of the execution process. seen from outside the pid_namespace
 int innerwatcher_pid;
+//the pid of the binary, seen from inside the namespace.
+int binary_pid;
 //the output pipe to the judge daemon. where the submission prints.
 int out_pipe[2];
 //the input pipe, which we use to feed the submission with data
 int in_pipe[2];
-//file descriptor to receive signal from the executing submission
-int sigxcpu_handler_fd;
 //indicates the state of the execution of the submission process.
-//0:not started, 1:started, 2:cannot be killed, 3: killed
 jug_sandbox_exec_state execution_state;
 
 
@@ -159,9 +158,39 @@ void timeout_handler(int sig);
 //cpu consumed handler
 static void rlimit_cpu_handler(int sig);
 
+//parent signal handler
+void parent_sig_handler(int sig);
 
 /*
  * @desc print the jug_sandbox_result value in human-readible format
  */
 const char* jug_sandbox_result_str(jug_sandbox_result result);
+/*
+ * jug_sandbox_memory_usage()
+ * @desc calculate how much memory a process has used, reading the /proc/[pid]/statm file
+ * @return the sum of data and stack usage in Bytes
+ * @note this call is done inside the sandbox.
+ */
+
+unsigned long jug_sandbox_memory_usage(pid_t pid);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #endif

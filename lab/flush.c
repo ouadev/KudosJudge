@@ -15,15 +15,10 @@
 #include <sys/wait.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
+#include <sys/ptrace.h>
 
-int out_pipe[2];
-//test function to generate load on cpu
-int fact(int u){
-	if(u==1) return 1;
-	return fact(u-1);
-}
+#include "../log.h"
 
-void sig_handler(int sig);
 
 /**
  * main()
@@ -39,80 +34,47 @@ int main(int argc, char*argv[]){
 
 	printf("father: (%d,%d) \n",getpid(),getppid());
 
-	/*pipe*/
-	if(pipe(out_pipe) != 0) fprintf(stderr,"problem pipe creation\n");
+
+
 	/* fork */
 	pid_t pid =fork();
 	if(pid==-1){
 		printf("clone() failed \n");
 		return -5;
-	}
-	int tmpfd=open("./out.data",O_CREAT| O_TRUNC | O_WRONLY,S_IWUSR|S_IRUSR);
-	if(tmpfd<0) fprintf(stderr,"error openong out.data : %s\n",strerror(errno));
-	if(pid>0){
-		//father
-		close(out_pipe[1]);
-		int status;
+	}else if (pid>0){
+		//parent
+		printf("the father\n");
+		int exitstatus;
 		while(1){
-			pid_t wpid=waitpid(pid,&status,WNOHANG|WUNTRACED);
-			if(wpid<0){
-				fprintf(stderr,"father: error waiting: %s \n",strerror(errno));
-				continue;
-			}else if(wpid>0){
-				fflush(stdout);
-				//something happened to the inner watcher.
-				if (WIFEXITED(status)){
-					fprintf(stderr,"father: son exited: %d\n",WEXITSTATUS(status));
-
-					break;
-				}
-				else if(WIFSIGNALED(status)){
-					fprintf(stderr,"father: son signaled : %d\n",WTERMSIG(status));
-
-					break;
-				}else fprintf(stderr,"father: son nor exited nor signaled, though event received\n");
+			wait(&exitstatus);
+			if(WIFSTOPPED(exitstatus)){
+				debugt("parent","Child stpopped with signal : %d",WSTOPSIG(exitstatus) );
+				fail = ptrace(PTRACE_CONT,pid,NULL,NULL);
+				debugt("child","Child continuing");
+				sleep(4);
+				if(fail==-1) debugt("child","ptrace_cont failed");
 			}
-			//
-			char buffer[256];
-			int count=read(out_pipe[0],buffer,255);
-			if(count<0 && errno==EAGAIN) continue;
-			if(count<0){
-				fprintf(stderr,"testing, error reading from the output pipe\n");
-				//TODO: here, the judgement must be set to (server error);
+			else if(WIFEXITED(exitstatus)){
+				debugt("parent","child exited, with code : %d",WEXITSTATUS(exitstatus) );
 				break;
 			}
-
-			buffer[count]='\0';
-			write(tmpfd,buffer,count);
-//			write(STDOUT_FILENO,buffer,count);
-
-
-
-			//debugt("Captor", "%d written",ww);
-
+			else if(WIFSIGNALED(exitstatus)){
+				debugt("parent","child signaled, signal : %d",WTERMSIG(exitstatus) );
+				break;
+			}
+			else{
+				debugt("child","GrandChild chanegd state, status : %d",exitstatus );
+				break;
+			}
 		}
 
-		close(tmpfd);
-		exit(44);
+
 	}
 
-	//son
-	close(out_pipe[0]);
-	dup2(out_pipe[1],STDOUT_FILENO);
-	close(out_pipe[1]);
-
-	printf("child: trying to execute cmd\n");
-
-	signal(SIGINT,sig_handler);
-	signal(SIGALRM,sig_handler);
-	alarm(3);
-
-//	while(1) printf("%d\n",rand()%41);
-	execvp(argv[1],argv+1);
-
-
-
-
+	//child
+	ptrace(PTRACE_TRACEME,0,NULL,NULL);
+	char* arg_vector[]={"/bin/sh",NULL};
+	execvp(argv[1],arg_vector);
 
 	return 0;
 
@@ -124,15 +86,3 @@ int main(int argc, char*argv[]){
 
 
 
-void sig_handler(int sig){
-	if(sig==SIGINT){
-		printf("sig int received\n");
-		fflush(stdout);
-		exit(4);
-	}
-	if(sig==SIGALRM){
-		printf("sig alarm received\n");
-		fflush(stdout);
-		exit(5);
-	}
-}

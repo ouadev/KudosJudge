@@ -17,12 +17,12 @@ void debug(char* message,...){
 	va_start(args,message);
 	vsprintf(dbg_msg,message,args);
 	va_end(args);
-	fprintf(stderr,"%s\n",dbg_msg);
-	
+	fprintf(stderr,"+ %s\n",dbg_msg);
+
 }
 
 void debugl(){
-	fprintf(stderr,"(%d:%s)\n",errno,strerror(errno));
+	fprintf(stderr,"+ (%d:%s)\n",errno,strerror(errno));
 }
 
 void debugll(char*message,...){
@@ -34,7 +34,7 @@ void debugll(char*message,...){
 	vsprintf(dbg_msg,message,args);
 	va_end(args);
 	sprintf(dbg_msg,"%s : (%d,%s)",dbg_msg,errno,linux_error);
-	fprintf(stderr,"%s\n",dbg_msg);
+	fprintf(stderr,"+ %s\n",dbg_msg);
 }
 
 void debugt(char*tag,char*message,...){
@@ -45,11 +45,11 @@ void debugt(char*tag,char*message,...){
 	va_end(args);
 	//
 
-	fprintf(stderr, "%s: %s\n",tag,dbg_msg);
+	fprintf(stderr, "+ %s: %s\n",tag,dbg_msg);
 }
 
 
-//
+//print bytes in hexa format, inernal use
 void print_bytes(char*buffer,int len){
 	int i=0;
 	for(i=0;i<len;i++){
@@ -60,3 +60,6 @@ void print_bytes(char*buffer,int len){
 	}
 	fprintf(stderr,"\n");
 }
+
+
+
