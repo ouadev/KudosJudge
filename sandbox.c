@@ -1,12 +1,12 @@
 #include "sandbox.h"
 
 /*
-//TODO:	manage forking/setrlimit relationship
 //TODO:	manage /tmp file creation
 //TODO: remember to check the health of the rootfs before begining.
 //TODO:	prepare test infrastructure with convenient logging.
 //TODO:	make the whole stuff thread-safe.
-
+ *
+ *
 //TODO: think about using mount namespaces instead of chroot.
 //TODO: receive cgroup limit expiration event.
 //TODO:	Interpreters limits (java, python,...)
@@ -444,9 +444,10 @@ int jug_sandbox_child(void* arg){
 		binary_pid=ns_pid;
 		binary_state=JS_BIN_RUNNING;
 		unsigned long mem_used=0;
-		int exitstatus,stop_sig;
+		int estatus,stop_sig;
 		int sigxcpu_received=0,sigsegv_received=0,mem_limit_exceeded=0,bin_killed=0;
 		int d_=0;
+		long binary_forked_pid;
 		//consume the first stopping event
 
 		wait(NULL);
@@ -454,17 +455,20 @@ int jug_sandbox_child(void* arg){
 			debugt("watcher"," ptrace(PTRACE_SETOPTIONS, ...) failed");
 			exit(-99);
 		}
+		if(ptrace(PTRACE_SETOPTIONS,binary_pid,0,PTRACE_O_TRACEFORK)){
+			debugt("watcher"," ptrace(PTRACE_SETOPTIONS, ...,PTRACE_O_TRACEFORK) failed");
+			exit(-99);
+		}
 		ptrace(PTRACE_CONT,binary_pid,NULL,NULL);
-
 		//watcher main loop
 		while(1){
-			waitpid(binary_pid,&exitstatus,0);
+			waitpid(binary_pid,&estatus,0);
 
-			if(WIFSTOPPED(exitstatus)){
-				stop_sig=WSTOPSIG(exitstatus);
+			if(WIFSTOPPED(estatus)){
+				stop_sig=WSTOPSIG(estatus);
 				debugt("watcher","binary stopped by the signal : %d",stop_sig);
 				//stopped right before exiting ???
-				if( (stop_sig==SIGTRAP) && (exitstatus & (PTRACE_EVENT_EXIT<<8))){
+				if( (stop_sig==SIGTRAP) && (estatus & (PTRACE_EVENT_EXIT<<8))){
 					mem_used=jug_sandbox_memory_usage(binary_pid);
 					int cputime_used=jug_sandbox_cputime_usage(binary_pid);
 					debugt("watcher","before exit check : mem:%ldB\tcputime:%ldms",mem_used,cputime_used);
@@ -476,12 +480,24 @@ int jug_sandbox_child(void* arg){
 					//of the pipe is clearing the buffer each time it reads.
 					//fflush(stdout);
 				}
+				//shit, he's trying to fork. kill it.
+				if( 	(estatus>>8 == (SIGTRAP | (PTRACE_EVENT_FORK<<8))) ||
+						(estatus>>8 == (SIGTRAP | (PTRACE_EVENT_CLONE<<8)))||
+						(estatus>>8 == (SIGTRAP | (PTRACE_EVENT_VFORK<<8)))  ){
+					debugt("watcher","After Clone() flavor stopping...");
+					ptrace(PTRACE_GETEVENTMSG,binary_pid,0,&binary_forked_pid);
+					debugt("watcher","Binary's child pid : %ld",binary_forked_pid);
+					kill(binary_forked_pid,SIGKILL);
+					kill(binary_pid,SIGKILL);
+					bin_killed=1;//so that the result be : runtime error
+				}
+
 				//out of cputime signal
 				if(stop_sig==SIGXCPU && !sigxcpu_received){
 					debugt("watcher","binary received SIGXCPU");
 					sigxcpu_received=1;
 				}
-
+				//memory related stuff
 				if(stop_sig==SIGSEGV){
 					debugt("watcher","sigsegv received");
 					sigsegv_received=1;
@@ -498,20 +514,20 @@ int jug_sandbox_child(void* arg){
 				//debugt("watcher","binary continuing ...");
 				if(fail==-1) debugt("watcher","ptrace_cont failed");
 			}
-			else if(WIFEXITED(exitstatus)){
-				debugt("watcher","binary exited, exit code : %d",WEXITSTATUS(exitstatus) );
+			else if(WIFEXITED(estatus)){
+				debugt("watcher","binary exited, exit code : %d",WEXITSTATUS(estatus) );
 				//we will return JS_CORRECT
 				break;
 			}
-			else if(WIFSIGNALED(exitstatus)){
-				debugt("watcher","binary killed by a signal : %d",WTERMSIG(exitstatus) );
+			else if(WIFSIGNALED(estatus)){
+				debugt("watcher","binary killed by a signal : %d",WTERMSIG(estatus) );
 				debugt("watcher","checking for memory limit");
 				//CHECK: also exit with the verdict.
 				bin_killed=1;
 				break;
 			}
 			else{
-				debugt("watcher","binary received unknown event, status : %d",exitstatus );
+				debugt("watcher","binary received unknown event, status : %d",estatus );
 				break;
 			}
 		}
