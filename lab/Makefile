@@ -20,3 +20,7 @@ flush: flush.o ../log.o
 	
 flush.o:flush.c
 	gcc -c flush.c -o flush.o
+	
+#stopper
+stopper: stopper.c
+	gcc stopper.c -o stopper

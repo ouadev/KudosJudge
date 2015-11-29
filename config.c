@@ -48,7 +48,7 @@ char* jug_get_config(char* section,char* key){
 		char* jug_path=getenv("JUG_ROOT");
 		char config_path[250];
 		config_path[0]='\0';
-		debugt("jug_path",jug_path);
+		//debugt("jug_path",jug_path);
 		strcpy(config_path,jug_path);
 		strcat(config_path,"/etc/config.ini");
 		localini= jug_ini_load(config_path);

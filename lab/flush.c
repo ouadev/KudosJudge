@@ -19,6 +19,12 @@
 
 #include "../log.h"
 
+void sig_handler(int sign,siginfo_t* siginfo,void* context){
+	printf("signal %d received\n",sign);
+	printf("reason : %s\n",siginfo->si_code==SEGV_MAPERR?"not mapped":"invalid perm");
+	printf("errno  : %d\n",siginfo->si_errno);
+	exit(44);
+}
 
 /**
  * main()
@@ -26,56 +32,20 @@
  *
  */
 int main(int argc, char*argv[]){
-	int fail;
-	if(argc<2){
-		printf("no enough args\n");
-		exit(4);
-	}
+	struct sigaction sa;
+	sa.sa_flags=SA_SIGINFO;
+	sa.sa_sigaction=sig_handler;
+	sigaction(SIGSEGV,&sa,NULL);
 
-	printf("father: (%d,%d) \n",getpid(),getppid());
+	struct rlimit lim;
+	lim.rlim_cur=10;
+	lim.rlim_max=lim.rlim_cur;
+	setrlimit(RLIMIT_AS,&lim);
 
-
-
-	/* fork */
-	pid_t pid =fork();
-	if(pid==-1){
-		printf("clone() failed \n");
-		return -5;
-	}else if (pid>0){
-		//parent
-		printf("the father\n");
-		int exitstatus;
-		while(1){
-			wait(&exitstatus);
-			if(WIFSTOPPED(exitstatus)){
-				debugt("parent","Child stpopped with signal : %d",WSTOPSIG(exitstatus) );
-				fail = ptrace(PTRACE_CONT,pid,NULL,NULL);
-				debugt("child","Child continuing");
-				sleep(4);
-				if(fail==-1) debugt("child","ptrace_cont failed");
-			}
-			else if(WIFEXITED(exitstatus)){
-				debugt("parent","child exited, with code : %d",WEXITSTATUS(exitstatus) );
-				break;
-			}
-			else if(WIFSIGNALED(exitstatus)){
-				debugt("parent","child signaled, signal : %d",WTERMSIG(exitstatus) );
-				break;
-			}
-			else{
-				debugt("child","GrandChild chanegd state, status : %d",exitstatus );
-				break;
-			}
-		}
-
-
-	}
-
-	//child
-	ptrace(PTRACE_TRACEME,0,NULL,NULL);
-	char* arg_vector[]={"/bin/sh",NULL};
-	execvp(argv[1],arg_vector);
-
+	//
+	int a=malloc(256000);
+	printf("allocated: %d\n",a);
+	strcpy(a,"ouadimjamalmustgotosleep");
 	return 0;
 
 }

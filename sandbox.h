@@ -48,10 +48,13 @@ struct sandbox{
 	char* chroot_dir;	 ///< path to the root fs to use (to chroot into)
 	int use_cgroups; 	///< wether to use cgroups;
 	int use_setrlimit;	///< wether to use setrlimit : resources limit in linux.
+	int kill_on_compout; ///<flag: kill the submission before it terminate if it is judged wrong.
+
 	int mem_limit_mb_default;
 	int time_limit_ms_default;
 	int walltime_limit_ms_default;
-	int stack_size_mb_default;
+
+	int stack_size_mb; ///< the stack to allocate for the submission watcher
 	//sandbox state
 	int nbr_instances;
 	struct cgroup* sandbox_cgroup;
@@ -67,17 +70,27 @@ jug_sandbox_result;
 /*
  * enumaration of the states of the execution process
  */
-
+//
+//typedef enum{
+//	JS_EXEC_NOTSTARTED,		//< nothing is done yet
+//	JS_EXEC_RUNNING,		//<	submission is running
+//	JS_EXEC_UNKILLABLE,		//<	failed to kill the submission
+//	JS_EXEC_KILLED,			//< sumission is killed by an alarm (walltime limit)
+//	JS_EXEC_SUICIDE,		//< submission consumed all its resource and killed by the kernel.
+//	JS_EXEC_EXITED,			//< submission safely exited
+//	JS_EXEC_DONE,			//< the execution is done, & there is nothing to go.
+//	JS_EXEC_DONE_UNKILLABLE	//< we're done watching, but the submission still running due to error
+//} jug_sandbox_exec_state;
+/*
+ * enumaration of the states of the execution of the binary process
+ */
 typedef enum{
-	JS_EXEC_NOTSTARTED,		//< nothing is done yet
-	JS_EXEC_RUNNING,		//<	submission is running
-	JS_EXEC_UNKILLABLE,		//<	failed to kill the submission
-	JS_EXEC_KILLED,			//< sumission is killed by an alarm (walltime limit)
-	JS_EXEC_SUICIDE,		//< submission consumed all its resource and killed by the kernel.
-	JS_EXEC_EXITED,			//< submission safely exited
-	JS_EXEC_DONE,			//< the execution is done, & there is nothing to go.
-	JS_EXEC_DONE_UNKILLABLE	//< we're done watching, but the submission still running due to error
-} jug_sandbox_exec_state;
+	JS_BIN_NOTSTARTED,
+	JS_BIN_RUNNING,
+	JS_BIN_WALLTIMEOUT,
+	JS_BIN_TIMEOUT,
+	JS_BIN_COMPOUT
+}js_bin_state;
 /**
  * parameter of run() function
  * a set of parameters to be handed to the runner, in order to judge a program's output
@@ -85,7 +98,7 @@ typedef enum{
 struct run_params{
 	int mem_limit_mb;	 ///< limit of memory usage per process, in megabytes
 	int time_limit_ms;	 ///< limit of time assigned to the process, in miliseconds
-	int stack_size_mb;	///< limit of allowed stack, in megabytes.
+
 	int fd_datasource;	///< where the submission acquire its inputs, it can be either in or out
 	int fd_datasource_dir;	///< is it a fd where the user writes (1), or an fd to be read from by the Executer (0)
 
@@ -105,10 +118,8 @@ int binary_pid;
 int out_pipe[2];
 //the input pipe, which we use to feed the submission with data
 int in_pipe[2];
-//indicates the state of the execution of the submission process.
-jug_sandbox_exec_state execution_state;
-
-
+//indicates the state of the execution of the binary
+js_bin_state binary_state;
 
 
 /**
@@ -153,10 +164,9 @@ int jug_sandbox_run(struct run_params* run_params_struct,
 int jug_sandbox_child(void* arg);
 
 //5 seconds timelimit handler
-void timeout_handler(int sig);
+void watcher_sig_handler(int sig);
 
-//cpu consumed handler
-static void rlimit_cpu_handler(int sig);
+
 
 //parent signal handler
 void parent_sig_handler(int sig);
@@ -176,9 +186,13 @@ unsigned long jug_sandbox_memory_usage(pid_t pid);
 
 
 
+/**
+ * jug_sandbox_print_stats
+ * @desc simple function to print spend time and memory by the binary process
+ * @note for debug purposes. must be called from the watcher process.
+ */
 
-
-
+unsigned long jug_sandbox_cputime_usage(pid_t pid);
 
 
 

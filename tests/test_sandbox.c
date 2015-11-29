@@ -27,15 +27,14 @@ int main(int argc, char*argv[]){
 	jug_sandbox_result result;
 	//change the config.ini default parameters with your own stuff
 	struct run_params runp;
-	runp.mem_limit_mb=1220000;
-	//runp.time_limit_ms=1000;
-	runp.stack_size_mb=40;
+	runp.mem_limit_mb=-1;//1220000;
+	runp.time_limit_ms=-1;//1000;
 	runp.fd_datasource=infd;
 	runp.fd_datasource_dir=0;
 	runp.compare_output=compare_output;
 	runp.fd_output_ref=rightfd;
-	char* arg_vector[]={"/bin/sh",NULL};
-	jug_sandbox_run(&runp,&sb,argv[1],arg_vector);
+
+	jug_sandbox_run(&runp,&sb,argv[1],argv+1);
 	result=runp.result;
 	debugt("test_sandbox","Executer result is : %s",jug_sandbox_result_str(result));
 
