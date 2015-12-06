@@ -14,7 +14,7 @@ ramfs.o:ramfs.c
 	gcc -c ramfs.c -o ramfs.o
 
 sandbox.o:sandbox.c
-	gcc -c sandbox.c -o sandbox.o 
+	gcc -c sandbox.c -o sandbox.o  -ggdb
 	
 compare.o:compare.c
 	gcc -c compare.c -o compare.o

@@ -27,6 +27,7 @@ int main(int argc, char*argv[]){
 	jug_sandbox_result result;
 	//change the config.ini default parameters with your own stuff
 	struct run_params runp;
+
 	runp.mem_limit_mb=-1;//1220000;
 	runp.time_limit_ms=-1;//1000;
 	runp.fd_datasource=infd;

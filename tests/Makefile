@@ -7,7 +7,7 @@ test_sandbox: test_sandbox.o  ../iniparser/iniparser.o ../config.o ../log.o ../s
 	cd .. && make -f Makefile
 
 test_sandbox.o: test_sandbox.c
-	gcc -c test_sandbox.c -o test_sandbox.o 
+	gcc -c test_sandbox.c -o test_sandbox.o -ggdb
 	
 #test-config
 test_config: test_config.o

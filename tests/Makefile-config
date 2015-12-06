@@ -1,7 +1,0 @@
-
-
-test_config: test_config.o
-	gcc ../iniparser/iniparser.o  ../log.o ../config.o test_config.o -o test_config
-
-test_config.o:test_config.c
-	gcc -c test_config.c -o test_config.o

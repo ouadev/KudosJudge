@@ -6,8 +6,14 @@ malware: malware.o ../log.o
 malware.o:malware.c
 	gcc -c malware.c -o malware.o 
 	
+#runner_php
+runner_php: runner_php.o  ../iniparser/iniparser.o ../config.o ../log.o ../sandbox.o ../compare.o
+	gcc runner_php.o ../iniparser/iniparser.o ../config.o ../log.o ../sandbox.o ../compare.o \
+	-o runner_php -lcgroup
+	cd .. && make -f Makefile
 	
-	
+runner_php.o:runner_php.c
+	gcc -c runner_php.c -o runner_php.o -ggdb
 #signal
 signal: signal.c
 	gcc signal.c -o signal
