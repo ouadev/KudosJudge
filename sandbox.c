@@ -1,9 +1,8 @@
 #include "sandbox.h"
 
 /*
-//TODO:	prepare test infrastructure with convenient logging.
-//TODO: remember to check the health of the rootfs before begining.
 //TODO:	make the whole stuff thread-safe.
+//TODO: remember to check the health of the rootfs before begining.
  *
  *
 //TODO: think about using mount namespaces instead of chroot.
@@ -329,12 +328,18 @@ int jug_sandbox_child(void* arg){
 	//remount the /tmp directory, each submission sees its own stuff
 	fail=umount("/tmp");
 	if(fail && errno!=EINVAL){
-		debugt("watcher","cannot umount /tmp : %s",errno,strerror(errno));
+		debugt("watcher","cannot umount /tmp : %s",strerror(errno));
 		exit(-9);
 	}
 	fail=mount("none","/tmp","tmpfs",MS_NODEV|MS_NOEXEC,NULL);
 	if(fail){
 		debugt("watcher","error mounting /tmp: %s\n",strerror(errno));
+		exit(-9);
+	}
+	//bind-mount /tmp to /var/tmp
+	fail=mount("/tmp","/var/tmp","none",MS_BIND,NULL);
+	if(fail){
+		debugt("watcher","cannot bind /tmp to /var/tmp:%s",strerror(errno));
 		exit(-9);
 	}
 	//	pipe stuff, doing it in InnerWatcher side
@@ -744,7 +749,7 @@ const char* jug_sandbox_result_str(jug_sandbox_result result){
 			"CORRECT ANSWER",
 			"WRONG ANSWER",
 			"TIME LIMIT EXCEEDED",
-			"WALL TIME LIMIT EXCCEEDED",
+			"WALL TIME LIMIT EXCEEDED",
 			"MEMORY LIMIT EXCEEDED",
 			"OUTPUT SIZE LIMIT EXCEEDED",
 			"RUNTIME ERROR",

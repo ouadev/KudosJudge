@@ -1,12 +1,9 @@
-int main(int argc, char **argv, char** envp)
-{
-  char** env;
-  for (env = envp; *env != 0; env++)
-  {
-    char* thisEnv = *env;
-    printf("%s\n", thisEnv);
-  }
+#include <stdio.h>
+#include <stdlib.h>
 
-  printf("finally no environment vars are shown\n");
-  return(0);
+int main(int argc,char*argv[]){
+	char*cmd="ls /";
+
+	system(cmd);
+	return 0;
 }
