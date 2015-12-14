@@ -53,6 +53,7 @@ struct sandbox{
 	int mem_limit_mb_default;
 	int time_limit_ms_default;
 	int walltime_limit_ms_default;
+	int output_size_limit_mb_default;
 
 	int stack_size_mb; ///< the stack to allocate for the submission watcher
 	//sandbox state
@@ -64,23 +65,19 @@ struct sandbox{
  * enumeration of the Executer's different returns
  */
 typedef enum{
-	JS_CORRECT,JS_WRONG,JS_TIMELIMIT,JS_WALL_TIMELIMIT,JS_MEMLIMIT,
-	JS_RUNTIME,JS_PIPE_ERROR,JS_COMP_ERROR,JS_UNKNOWN}
+	JS_CORRECT,
+	JS_WRONG,
+	JS_TIMELIMIT,
+	JS_WALL_TIMELIMIT,
+	JS_MEMLIMIT,
+	JS_OUTPUTLIMIT,
+	JS_RUNTIME,
+	JS_PIPE_ERROR,
+	JS_COMP_ERROR,
+	JS_UNKNOWN
+}
 jug_sandbox_result;
-/*
- * enumaration of the states of the execution process
- */
-//
-//typedef enum{
-//	JS_EXEC_NOTSTARTED,		//< nothing is done yet
-//	JS_EXEC_RUNNING,		//<	submission is running
-//	JS_EXEC_UNKILLABLE,		//<	failed to kill the submission
-//	JS_EXEC_KILLED,			//< sumission is killed by an alarm (walltime limit)
-//	JS_EXEC_SUICIDE,		//< submission consumed all its resource and killed by the kernel.
-//	JS_EXEC_EXITED,			//< submission safely exited
-//	JS_EXEC_DONE,			//< the execution is done, & there is nothing to go.
-//	JS_EXEC_DONE_UNKILLABLE	//< we're done watching, but the submission still running due to error
-//} jug_sandbox_exec_state;
+
 /*
  * enumaration of the states of the execution of the binary process
  */
@@ -120,6 +117,8 @@ int out_pipe[2];
 int in_pipe[2];
 //indicates the state of the execution of the binary
 js_bin_state binary_state;
+//the count of received bytes from the executing binary.
+int received_bytes;
 
 
 /**

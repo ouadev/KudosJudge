@@ -1,10 +1,8 @@
 #include "sandbox.h"
 
 /*
-//TODO: Check the output size limit, (just add up size of sent chunk to compare_output)
-//TODO:	manage /tmp file creation
-//TODO: remember to check the health of the rootfs before begining.
 //TODO:	prepare test infrastructure with convenient logging.
+//TODO: remember to check the health of the rootfs before begining.
 //TODO:	make the whole stuff thread-safe.
  *
  *
@@ -14,7 +12,11 @@
 //TODO: Compiling layer
 
 
-
+@note:	there is a lack of sight for why system() lib function is not captured by
+		the tracing technique, even if it's using exec() which a syscall that we can
+		capture. for now, it can't do harm, because we're running with very unpriveleged
+		user, and actually the attacker can rewrite any linux binary with hand wich is equivalent
+		to running it.
 
  */
 
@@ -145,6 +147,7 @@ int jug_sandbox_run(
 	char buffer[256];
 	short cnfg_kill_on_compout=sandbox_struct->kill_on_compout;
 	jug_sandbox_result watcher_result,comp_result,result;
+	received_bytes=0;
 
 	while(!were_done){
 		//pull watcher state
@@ -156,7 +159,9 @@ int jug_sandbox_run(
 			}else if(wpid>0){
 				if(WIFEXITED(iw_status)){
 					//normal exit (voluntary exit)
-					int exit_code=WEXITSTATUS(iw_status);
+					//I use the range (-127,127) to express my exit codes, so that I could
+					// transmit information about errors.
+					char exit_code=WEXITSTATUS(iw_status);
 					if(exit_code<0)
 						spawn_succeeded=0;
 					else{
@@ -196,10 +201,21 @@ int jug_sandbox_run(
 			//if an inequality is reported by the comparing function, and simultaneous mode is on, kill.
 			if(nequal != 0){
 				compout_detected=1;
-				//communicate with the child via SIGUSR1 signal to inform them we detect false output
+				//communicate with the child via SIGUSR1 signal to inform them we detected false output
 				if(cnfg_kill_on_compout)
 					kill(innerwatcher_pid,SIGUSR1);
 			}
+			//detect too much of output (not test feature)
+			//SIGUSR1 handler will kill the binary and make sure the watcher reports a good execution
+			// with exit(JS_CORRECT). to report the output overflow to sandbox user, we will change the
+			// value of comp_result flag to JS_OUTPUTLIMIT
+			received_bytes+=count;
+			if( (received_bytes/1000000)> ccp->sandbox_struct->output_size_limit_mb_default){
+				debugt("watcher","too much generated output");
+				kill(innerwatcher_pid,SIGUSR1);
+				comp_result=JS_OUTPUTLIMIT;
+			}
+
 		}
 		else if(count==0){//end of file received
 			endoffile=1;
@@ -245,7 +261,7 @@ int jug_sandbox_run(
 	}
 
 	else
-		debugt("spawner","spawning failed before launching the binary");
+		debugt("spawner","spawning failed before execvp()");
 
 	//
 
@@ -310,7 +326,17 @@ int jug_sandbox_child(void* arg){
 		debugt("jug_sandbox_child","error remounting sandbox /proc, linux error : %s\n",strerror(errno));
 		exit(-4);
 	}
-
+	//remount the /tmp directory, each submission sees its own stuff
+	fail=umount("/tmp");
+	if(fail && errno!=EINVAL){
+		debugt("watcher","cannot umount /tmp : %s",errno,strerror(errno));
+		exit(-9);
+	}
+	fail=mount("none","/tmp","tmpfs",MS_NODEV|MS_NOEXEC,NULL);
+	if(fail){
+		debugt("watcher","error mounting /tmp: %s\n",strerror(errno));
+		exit(-9);
+	}
 	//	pipe stuff, doing it in InnerWatcher side
 	//	redirect stdout to the output transferring pipe
 	while (1){
@@ -345,17 +371,15 @@ int jug_sandbox_child(void* arg){
 
 	////fork
 	debugt("watcher","forking to the binary...");
-	pid_t ns_pid=fork();
-	if(ns_pid<0){
+	binary_pid=fork();
+	if(binary_pid<0){
 		debugt("watcher","cannot fork the grandchild, exiting...");
 		exit(-6);
 	}
-	if(ns_pid>0){
+	if(binary_pid>0){
 		//close(out_pipe[0]);
 		//close(out_pipe[1]);
 		//i'm the direct parent of the submission
-
-		binary_pid=ns_pid;
 		binary_state=JS_BIN_RUNNING;
 		unsigned long mem_used=0;
 		int estatus,stop_sig;
@@ -366,13 +390,17 @@ int jug_sandbox_child(void* arg){
 
 		wait(NULL);
 		if (ptrace(PTRACE_SETOPTIONS, binary_pid, 0, PTRACE_O_TRACEEXIT)) {
-			debugt("watcher"," ptrace(PTRACE_SETOPTIONS, ...) failed");
+			debugt("watcher"," ptrace(PTRACE_SETOPTIONS, ...) failed : %s",strerror(errno));
 
-			exit(-99);
+			exit(-21);
 		}
 		if(ptrace(PTRACE_SETOPTIONS,binary_pid,0,PTRACE_O_TRACEFORK)){
-			debugt("watcher"," ptrace(PTRACE_SETOPTIONS, ...,PTRACE_O_TRACEFORK) failed");
-			exit(-99);
+			debugt("watcher"," ptrace(PTRACE_SETOPTIONS, ...,PTRACE_O_TRACEFORK) failed: %s",strerror(errno));
+			exit(-21);
+		}
+		if(ptrace(PTRACE_SETOPTIONS,binary_pid,0,PTRACE_O_TRACEEXEC)){
+			debugt("watcher"," ptrace(PTRACE_SETOPTIONS, ...,PTRACE_O_TRACEEXEC) failed: %s",strerror(errno));
+			exit(-21);
 		}
 		ptrace(PTRACE_CONT,binary_pid,NULL,NULL);
 		//watcher main loop
@@ -399,14 +427,19 @@ int jug_sandbox_child(void* arg){
 				if( 	(estatus>>8 == (SIGTRAP | (PTRACE_EVENT_FORK<<8))) ||
 						(estatus>>8 == (SIGTRAP | (PTRACE_EVENT_CLONE<<8)))||
 						(estatus>>8 == (SIGTRAP | (PTRACE_EVENT_VFORK<<8)))  ){
-					debugt("watcher","After Clone() flavor stopping...");
+					debugt("watcher","before Clone() flavor stopping...");
 					ptrace(PTRACE_GETEVENTMSG,binary_pid,0,&binary_forked_pid);
 					debugt("watcher","Binary's child pid : %ld",binary_forked_pid);
 					kill(binary_forked_pid,SIGKILL);
 					kill(binary_pid,SIGKILL);
 					bin_killed=1;//so that the result be : runtime error
 				}
-
+				//shit, he's trying to exec(), kill it
+				if( estatus>>8 == (SIGTRAP | (PTRACE_EVENT_EXEC<<8)) ){
+					debugt("watcher","before exec() flavor stopping...-");
+					kill(binary_pid,SIGKILL);
+					bin_killed=1;
+				}
 				//out of cputime signal
 				if(stop_sig==SIGXCPU && !sigxcpu_received){
 					debugt("watcher","binary received SIGXCPU");
@@ -425,8 +458,16 @@ int jug_sandbox_child(void* arg){
 					//sigsegv if segv must be killed
 					kill(binary_pid,SIGKILL);
 				}
+				//stopped by SIGCHLD, may be trying to execute system()
+				//actually this shouldn't happen: sigchld shouldn't be delivered to the binary
+				//because that means that the binary successeded to fork.
+				if(stop_sig==SIGCHLD){
+					debugt("watcher","binary received SIGCHLD");
+					kill(binary_pid,SIGKILL);
+					bin_killed=1;
+				}
 
-				fail = ptrace(PTRACE_CONT,ns_pid,NULL,NULL);
+				fail = ptrace(PTRACE_CONT,binary_pid,NULL,NULL);
 				//debugt("watcher","binary continuing ...");
 				if(fail==-1) debugt("watcher","ptrace_cont failed");
 			}
@@ -458,7 +499,7 @@ int jug_sandbox_child(void* arg){
 		else if(binary_state==JS_BIN_COMPOUT)
 			exit(JS_CORRECT);
 		else if(sigsegv_received || bin_killed){
-			//bin_killed can detect by-zero-devision exception for example
+			//bin_killed can detect by-zero-division exception for example
 			//sometimes, being killed by a signal results from consuming all the memory, that's why
 			// we check first for the mem_limit
 			if(mem_limit_exceeded)
@@ -472,6 +513,7 @@ int jug_sandbox_child(void* arg){
 
 	//GrandChild code (binary)
 	//ptraceed ...
+
 	ptrace(PTRACE_TRACEME,0,NULL,NULL);
 	//printf("Hacked By Ouadev01\n");
 	//fflush(stdout);
@@ -528,14 +570,15 @@ int jug_sandbox_child(void* arg){
 		exit(113);
 	}
 
-	//debugt("jug_sandbox_child","EUID:%d, RUID: %d",geteuid(),getuid());
-	gid_t listg[20];
+	//oof, execute
+	char* sandbox_envs[2]={
+			"MESSAGE=Nice, you got here? send me ENV to ouadimjamal@gmail.com",
+			NULL};
 
-	//run the binary
-	//fflush(stdout);
 
+	ccp->argv[0]="/22102010";
 
-	execvp(ccp->binary_path,ccp->argv);
+	execvpe(ccp->binary_path,ccp->argv,sandbox_envs);
 	return -999;
 }
 
@@ -572,6 +615,13 @@ int jug_sandbox_init(struct sandbox* sandbox_struct){
 		return -1;
 	}
 	sb->time_limit_ms_default=atoi(value);
+	//output size limit
+	//output_size_limit_mb_default
+	if( ( value=jug_get_config("Executer","output_size_limit_mb") )==NULL ){
+		debugt("sandbox","cannot read output_size_limit_mb config");
+		return -1;
+	}
+	sb->output_size_limit_mb_default=atoi(value);
 	//stack size
 	if( ( value=jug_get_config("Executer","stack_size_mb") )==NULL ){
 		debugt("sandbox","cannot read time_limit_ms config");
@@ -690,12 +740,13 @@ int jug_sandbox_create_cgroup(struct cgroup* sandbox,struct sandbox* sandbox_str
  */
 
 const char* jug_sandbox_result_str(jug_sandbox_result result){
-	const char* strings[9]={
+	const char* strings[12]={
 			"CORRECT ANSWER",
 			"WRONG ANSWER",
 			"TIME LIMIT EXCEEDED",
 			"WALL TIME LIMIT EXCCEEDED",
 			"MEMORY LIMIT EXCEEDED",
+			"OUTPUT SIZE LIMIT EXCEEDED",
 			"RUNTIME ERROR",
 			"PIPE ERROR",
 			"COMPARING FUNCTION ERROR",

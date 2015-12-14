@@ -1,7 +1,9 @@
 /***
-* ramfs: definition of functions that deal with :
+* Ramfs management
+* @desc create and manage a directory where a ramfs filesystem is mounted
 *	+ create and mount a ramfs filesystem.
 *	+ put files in the ramfs and watch for memory usage
+* @author: Ouadim Jamal ouadimjamal@gmail.com
 *
 */
 
@@ -33,8 +35,10 @@
 typedef struct ramfs_info{
 	//path to root directory, just add /jug to have the directory where ramfs will reside
 	char* root_dir;
-	/** ramfs dir */
-	char* directory;
+	/** the dirname*/
+	char* dirname;
+	/** ramfs full path */
+	char* path;
 	//size to allocate (unit Bytes)
 	int size_alloc;
 	//memory length used (unit Bytes)
@@ -45,6 +49,9 @@ typedef struct ramfs_info{
 }ramfs_info;
 
 
+//the name of the directory to put stuff
+char _ramfs_dir[400];
+char _ramfs_full_path[600];
 
 
 /**
@@ -53,7 +60,7 @@ typedef struct ramfs_info{
 * @param size_alloc size in MegaBytes to allocate
 * @param max_size maximum size to tolerate,given the Linux ramfs hasn't size limit, in MegaBytes
 */
-ramfs_info* init_ramfs(char* rootfs,int size_alloc,int max_size);
+ramfs_info* init_ramfs(char* rootfs,char* ramfs_dir,int size_alloc,int max_size);
 
 /**
 * create_ramfs()
@@ -73,10 +80,7 @@ int ramfs_ismounted(ramfs_info*info);
 */
 int umount_ramfs(ramfs_info*info);
 
-/**
-* get_ramfs_dir
-*/
-char* get_ramfs_dir(ramfs_info*info);
+
 
 /**
 * ramfs_cp

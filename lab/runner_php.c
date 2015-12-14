@@ -1,17 +1,16 @@
 #include "../sandbox.h"
+#include "../ramfs.h"
 #include <stdlib.h>
 #define MAX_CODE_SIZE 50000  //50 KB
 #define MAX_BIN_OUTPUT 500000; //500 KB is more than enough
 
-//TODO: put in the web page the twins problem
 /*
  * @usage: runner_php [c_source_file]
  *
- * + read the C code from stdin.
- * + create file in $JUG_CHROOT/unique.c
- * + call the compiler, and generate unique (u+x)
- * + execute the 'unique',
- * + print the verdict in the first line, and the output in the rest.
+ * + create a ramfs directory somewhere in $JUG_CHROOT.
+ * + create a unique.c and compile it.
+ * + give it to the Runner. it will change the working dir, and change filename in argv.
+ * @note: binaries in /ramfs are being deleted. and sources are kept bur inaccessible.
  */
 
 //output holder
@@ -23,20 +22,31 @@ int 	output_count=0;
  */
 int php_compare_output(int fd_out_ref,char* rx,int size,int end);
 
+/*
+ * main
+ */
 int main(int argc,char*argv[]){
 	char* jug_chroot;
 	char line[10000];
 	char cmd[1000];
 	char output_file[1000];
 	char erfs_bin_path[500];
+	char ramfs_root[400];
 	pid_t upid;
 	FILE* ufile;
-
+	int fail=0;
+	//check user
+	if(geteuid()!=0){
+		debugt("runner_php","must be run as root, uid:%d ",geteuid());
+		printf("JUDGE INTERNAL ERROR, SORRY\n");
+		return -10;
+	}
 	//bash pipelining ?
 	if(argc==2){
 		printf("[test] argv[1]=%s\n",argv[1]);
 		if(freopen(argv[1],"r",stdin)==NULL){
-			printf("[test] cannot freopen stdin to the source : %s, error:%s\n",argv[1],strerror(errno));
+			debugt("runner_php","cannot freopen stdin to the source : %s, error:%s\n",argv[1],strerror(errno));
+			printf("JUDGE INTERNAL ERROR, SORRY\n");
 			return -8;
 		}
 	}
@@ -44,14 +54,31 @@ int main(int argc,char*argv[]){
 
 	//get env
 	if (  (jug_chroot=getenv("JUG_CHROOT"))==NULL){
-		printf("JUG_CHROOT env not found \n");
+		debugt("runner_php","JUG_CHROOT env not found \n");
+		printf("JUDGE INTERNAL ERROR, SORRY\n");
 		return -2;
+	}
+
+	//prepare ramfs
+	ramfs_info* ramfsinfo=init_ramfs(jug_chroot,"ramfs",10,15);
+	debugt("runner_pgp","jug_chroot:%s",jug_chroot);
+	debugt("runner_php","path : %s",ramfsinfo->path);
+
+	//	umount_ramfs(ramfsinfo);
+	//	rm_ramfs_dir(ramfsinfo);
+	//	return 0;
+
+	fail=create_ramfs(ramfsinfo);
+	if(fail && fail!=-2){//-2: already exists, good
+		debugt("runner_php","cannot initialize ramfs directory");
+		printf("JUDGE INTERNAL ERROR, SORRY\n");
+		return -9;
 	}
 
 	//create unique.c in /tmp
 	upid=getpid();
 	char upath[50];
-	sprintf(upath,"%s/tmp/submission_%d.c",jug_chroot,(int)upid);
+	sprintf(upath,"%s/submission_%d.c",ramfsinfo->path,(int)upid);
 
 	umask(S_IWGRP|S_IRGRP|S_IWOTH|S_IROTH);
 
@@ -72,7 +99,7 @@ int main(int argc,char*argv[]){
 
 
 	//Compile The Code
-	sprintf(output_file,"%s/tmp/submission_%d",jug_chroot,(int)upid);
+	sprintf(output_file,"%s/submission_%d",ramfsinfo->path,(int)upid);
 	debugt("runner_php","source path: %s",upath);
 	sprintf(cmd,"gcc-4.7 %s -o %s",upath,output_file);
 	system(cmd);
@@ -82,6 +109,7 @@ int main(int argc,char*argv[]){
 		printf("COMPILER ERROR\n");
 		return -4;
 	}
+
 
 	//run the compiled binary
 	struct sandbox sb;
@@ -113,8 +141,9 @@ int main(int argc,char*argv[]){
 	runp.fd_output_ref=rightfd;
 
 	//run the binary inside the sandbox.
-	sprintf(erfs_bin_path,"/tmp/submission_%d",(int)upid);
-	char *bin_args[1]={NULL};
+	sprintf(erfs_bin_path,"/%s/submission_%d",ramfsinfo->dirname,(int)upid);
+	debugt("runner_php","erfs_bin: %s",erfs_bin_path);
+	char *bin_args[2]={erfs_bin_path,NULL};
 	ret=jug_sandbox_run(&runp,&sb,erfs_bin_path,bin_args);
 	//
 	if(ret>=0){
@@ -134,6 +163,7 @@ int main(int argc,char*argv[]){
 	//
 	//remove(upath);
 	remove(output_file);
+	remove(upath);
 
 	return 0;
 }
@@ -149,11 +179,13 @@ int php_compare_output(int fd_out_ref,char* rx,int size,int end){
 	if(size>0){
 		debugt("php_compare_output","%d octets received",size);
 		int max_bin_out=MAX_BIN_OUTPUT;
-		memcpy(output_holder+output_count,rx,size);
-		output_count+=size;
 		if(output_count>max_bin_out){
+			debugt("runner_php","max output size reached");
 			return -66;
 		}
+		memcpy(output_holder+output_count,rx,size);
+		output_count+=size;
+
 	}
 
 	//checking

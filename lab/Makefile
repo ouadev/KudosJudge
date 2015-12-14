@@ -7,8 +7,8 @@ malware.o:malware.c
 	gcc -c malware.c -o malware.o 
 	
 #runner_php
-runner_php: runner_php.o  ../iniparser/iniparser.o ../config.o ../log.o ../sandbox.o ../compare.o
-	gcc runner_php.o ../iniparser/iniparser.o ../config.o ../log.o ../sandbox.o ../compare.o \
+runner_php: runner_php.o  ../iniparser/iniparser.o ../config.o ../log.o ../sandbox.o ../compare.o ../ramfs.o
+	gcc runner_php.o ../iniparser/iniparser.o ../config.o ../log.o ../sandbox.o ../compare.o ../ramfs.o \
 	-o runner_php -lcgroup
 	cd .. && make -f Makefile
 	
