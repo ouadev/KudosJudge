@@ -4,18 +4,16 @@
 //use : "sudo -E ./test-sandbox" to execute this test
 
 int main(int argc, char*argv[]){
-
+	int ret;
+	//
 	if(argc<2){
 		printf("no enough args\n");
 		exit (475);
 	}
-	int ret;
+
+
 	struct sandbox sb;
-
-
 	ret=jug_sandbox_init(&sb);
-
-
 	if(ret){
 		printf("[test] cannot init sandbox : %d\n",ret);
 		return 1;

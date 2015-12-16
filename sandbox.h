@@ -144,14 +144,6 @@ int jug_sandbox_create_cgroup(struct cgroup* sandbox_cgroup,struct sandbox* sand
  * @note The Threading Manager should keep a pool of threads to reduce the overhead
  * 		of launching a thread for each submission, and then kill it.
  */
-//clone into new namespaces.
-//redirecting stuff IDontKnow
-//chroot/fs_ns into the jug_rootfs
-//parameter the cgroup/setrlimit
-//watch for signals/(execution timeout)
-//kill it if it's possible/freeze if cgroups
-//control writing operations to /tmp.
-//fetch data from the std_out of the binary.
 
 
 int jug_sandbox_run(struct run_params* run_params_struct,

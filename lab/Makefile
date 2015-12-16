@@ -14,6 +14,11 @@ runner_php: runner_php.o  ../iniparser/iniparser.o ../config.o ../log.o ../sandb
 	
 runner_php.o:runner_php.c
 	gcc -c runner_php.c -o runner_php.o -ggdb
+
+#thread
+thread:thread.c
+	gcc thread.c -o thread -lpthread
+	
 #signal
 signal: signal.c
 	gcc signal.c -o signal

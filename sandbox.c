@@ -6,9 +6,9 @@
  *
  *
 //TODO: think about using mount namespaces instead of chroot.
-//TODO: receive cgroup limit expiration event.
-//TODO:	Interpreters limits (java, python,...)
 //TODO: Compiling layer
+//TODO:	Interpreters limits (java, python,...)
+
 
 
 @note:	there is a lack of sight for why system() lib function is not captured by
@@ -16,6 +16,11 @@
 		capture. for now, it can't do harm, because we're running with very unpriveleged
 		user, and actually the attacker can rewrite any linux binary with hand wich is equivalent
 		to running it.
+
+@note:	/var/tmp is a directory used to save old files after reboot. obviously we don't need it to run a
+		submission, so instead of removing it, which could affects the job of some interpreters, we mounted
+		the directory /tmp over it. By doing so the content of /var/tmp (==/tmp) will be cleared after exiting.
+		Exiting will destroy the mount namespace of the sandbox, unmounting /tmp.
 
  */
 
