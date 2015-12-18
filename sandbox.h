@@ -39,27 +39,7 @@
 
 #include "config.h"
 #include "compare.h"
-/**
- * Sandbox structure
- * holds all the basic information about the sandbox
- */
-struct sandbox{
-	//parameters
-	char* chroot_dir;	 ///< path to the root fs to use (to chroot into)
-	int use_cgroups; 	///< wether to use cgroups;
-	int use_setrlimit;	///< wether to use setrlimit : resources limit in linux.
-	int kill_on_compout; ///<flag: kill the submission before it terminate if it is judged wrong.
 
-	int mem_limit_mb_default;
-	int time_limit_ms_default;
-	int walltime_limit_ms_default;
-	int output_size_limit_mb_default;
-
-	int stack_size_mb; ///< the stack to allocate for the submission watcher
-	//sandbox state
-	int nbr_instances;
-	struct cgroup* sandbox_cgroup;
-};
 
 /**
  * enumeration of the Executer's different returns
@@ -88,11 +68,37 @@ typedef enum{
 	JS_BIN_TIMEOUT,
 	JS_BIN_COMPOUT
 }js_bin_state;
+
+/**
+ * Sandbox structure
+ * holds all the basic information about the sandbox
+ */
+struct sandbox{
+	//parameters
+	char* chroot_dir;	 ///< path to the root fs to use (to chroot into)
+	int use_cgroups; 	///< wether to use cgroups;
+	int use_setrlimit;	///< wether to use setrlimit : resources limit in linux.
+	int kill_on_compout; ///<flag: kill the submission before it terminate if it is judged wrong.
+
+	int mem_limit_mb_default;
+	int time_limit_ms_default;
+	int walltime_limit_ms_default;
+	int output_size_limit_mb_default;
+
+	int stack_size_mb; ///< the stack to allocate for the submission watcher
+	//sandbox state
+	int nbr_instances;
+	struct cgroup* sandbox_cgroup;
+
+};
+
 /**
  * parameter of run() function
- * a set of parameters to be handed to the runner, in order to judge a program's output
+ * a set of parameters to be handed to the runner, in order to judge a program's output.
+ * this structure is to be filled with the user of the sandbox, and not the sandbox itself.
  */
 struct run_params{
+	//limits ans stuff
 	int mem_limit_mb;	 ///< limit of memory usage per process, in megabytes
 	int time_limit_ms;	 ///< limit of time assigned to the process, in miliseconds
 
@@ -102,23 +108,40 @@ struct run_params{
 	int fd_output_ref;		///< file descriptor where we get the correct output, the user should manager close() of this fd
 	int(*compare_output)(int,char*,int,int);	///< address to a function where the comparaison is done
 
+	//execution state variables (those are moved from globals for thread-safety)
+	int watcher_pid; ///< the pid of the parent of the execution process. seen from outside the pid_namespace
+	int out_pipe[2];///< the output pipe to the judge daemon. where the submission prints.
+	int in_pipe[2]; ///< the input pipe, which we use to feed the submission with data
+	int received_bytes; //< the count of received bytes from the executing binary.
+
+	//the result of Execution
 	jug_sandbox_result result;		//<  where we should put the result of the execution
 };
+
 /**
- * Global Variables
+ * medium structure
+ * @desc the structre we pass to the process we create inside the sandbox (watcher)
  */
-//the pid of the parent of the execution process. seen from outside the pid_namespace
-int innerwatcher_pid;
-//the pid of the binary, seen from inside the namespace.
+struct clone_child_params{
+	struct run_params* run_params_struct; ///< instance of run_params structure.
+	struct sandbox* sandbox_struct; ///< a pointer to the sandbox structure.
+	char* binary_path;	///< a path relative to the ERFS, where the binary resides
+	char**argv; ///< a NULL-terminated list of arguments passed to the binary.
+};
+
+
+
+/**
+ * Global Variables of the watcher process
+ * @note They don't present a threat while threading, because
+ * 		 they are accessed only from the watcher process. and not from the spawner thread.
+ * 		 other global-like variables are inserted in run_params in the 'execution state section'
+ */
+///< the pid of the binary, seen from inside the namespace.
 int binary_pid;
-//the output pipe to the judge daemon. where the submission prints.
-int out_pipe[2];
-//the input pipe, which we use to feed the submission with data
-int in_pipe[2];
-//indicates the state of the execution of the binary
+////indicates the state of the execution of the binary
 js_bin_state binary_state;
-//the count of received bytes from the executing binary.
-int received_bytes;
+
 
 
 /**
@@ -156,11 +179,6 @@ int jug_sandbox_child(void* arg);
 
 //5 seconds timelimit handler
 void watcher_sig_handler(int sig);
-
-
-
-//parent signal handler
-void parent_sig_handler(int sig);
 
 /*
  * @desc print the jug_sandbox_result value in human-readible format

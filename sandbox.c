@@ -26,15 +26,6 @@
 
 
 
-/**
- * medium structure
- */
-struct clone_child_params{
-	struct run_params* run_params_struct;
-	struct sandbox* sandbox_struct;
-	char* binary_path;
-	char**argv;
-};
 
 
 
@@ -51,7 +42,9 @@ int jug_sandbox_run(
 		struct sandbox* sandbox_struct,
 		char* binary_path,
 		char*argv[]){
-
+	//locals
+	int watcher_pid;
+	int received_bytes=0;
 	//some checking
 	//if the caller didn't want to specify some limits, replace them with the Config's defaults.
 	if(run_params_struct->mem_limit_mb<0)
@@ -94,18 +87,18 @@ int jug_sandbox_run(
 	////init the out pipe
 	///more information on (pipe & stdout buffering) :
 	/// http://www.pixelbeat.org/programming/stdio_buffering/
-	if( pipe(out_pipe)==-1){
+	if( pipe(run_params_struct->out_pipe)==-1){
 		debugt("jug_sandbox_run","cannot create output pipe");
 		return -3;
 	}
-	if(pipe(in_pipe)==-1){
+	if(pipe(run_params_struct->in_pipe)==-1){
 		debugt("jug_sandbox_run","cannot create input pipe");
 		return -8;
 	}
-	close(in_pipe[0]);
+	close(run_params_struct->in_pipe[0]);
 
 	if(fd_datasource_dir){
-		fail=dup2(in_pipe[1],fd_datasource);
+		fail=dup2(run_params_struct->in_pipe[1],fd_datasource);
 		if(fail==-1){
 			debugt("jug_sandbox_run","cannot dup2 in_pipe: %s",strerror(errno));
 			return -9;
@@ -131,32 +124,33 @@ int jug_sandbox_run(
 	}
 	stacktop=stack;
 	stacktop+=STACK_SIZE;
-	innerwatcher_pid=clone(jug_sandbox_child,stacktop,CLONE_NEWUTS|CLONE_NEWNET|CLONE_NEWPID|CLONE_NEWNS|SIGCHLD,(void*)ccp);
-	if(innerwatcher_pid==-1){
+	watcher_pid=clone(jug_sandbox_child,stacktop,CLONE_NEWUTS|CLONE_NEWNET|CLONE_NEWPID|CLONE_NEWNS|SIGCHLD,(void*)ccp);
+	if(watcher_pid==-1){
 		debugt("jug_sandbox_run","cannot clone() the submission executer, linux error: %s",strerror(errno));
 		return -2;
 	}
-	//set the global inner watcher process id
 
+	//set the global inner watcher process id
+	run_params_struct->watcher_pid=watcher_pid;
 	/*
 	 *
 	 * read the output from the submission
 	 *
 	 */
-	int flags=fcntl(out_pipe[0],F_GETFL,0);
-	fcntl(out_pipe[0],F_SETFL,flags|O_NONBLOCK);
+	int flags=fcntl(run_params_struct->out_pipe[0],F_GETFL,0);
+	fcntl(run_params_struct->out_pipe[0],F_SETFL,flags|O_NONBLOCK);
 	pid_t wpid;
 	int count=0,endoffile=0,compout_detected=0,iw_status,nequal,spawn_succeeded=1;
 	int watcher_alive=1,were_done=0;
 	char buffer[256];
 	short cnfg_kill_on_compout=sandbox_struct->kill_on_compout;
 	jug_sandbox_result watcher_result,comp_result,result;
-	received_bytes=0;
+
 
 	while(!were_done){
 		//pull watcher state
 		if(watcher_alive){
-			wpid=waitpid(innerwatcher_pid,&iw_status,WNOHANG);
+			wpid=waitpid(watcher_pid,&iw_status,WNOHANG);
 			if(wpid<0){
 				debugt("spawner","error waiting for the inner watcher");
 				watcher_alive=0;
@@ -195,7 +189,7 @@ int jug_sandbox_run(
 		}
 		//use simultaneous read
 		//ps:ublocking read
-		count=read(out_pipe[0],buffer,255);
+		count=read(run_params_struct->out_pipe[0],buffer,255);
 		//if(count!=-1) write(STDOUT_FILENO,buffer,count);
 		if(count>0){ //some bytes are read
 			nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,0);
@@ -207,7 +201,7 @@ int jug_sandbox_run(
 				compout_detected=1;
 				//communicate with the child via SIGUSR1 signal to inform them we detected false output
 				if(cnfg_kill_on_compout)
-					kill(innerwatcher_pid,SIGUSR1);
+					kill(watcher_pid,SIGUSR1);
 			}
 			//detect too much of output (not test feature)
 			//SIGUSR1 handler will kill the binary and make sure the watcher reports a good execution
@@ -216,7 +210,7 @@ int jug_sandbox_run(
 			received_bytes+=count;
 			if( (received_bytes/1000000)> ccp->sandbox_struct->output_size_limit_mb_default){
 				debugt("watcher","too much generated output");
-				kill(innerwatcher_pid,SIGUSR1);
+				kill(watcher_pid,SIGUSR1);
 				comp_result=JS_OUTPUTLIMIT;
 			}
 
@@ -245,7 +239,7 @@ int jug_sandbox_run(
 				compout_detected=1;
 				//send SIGUSR1
 				if(cnfg_kill_on_compout)
-					kill(innerwatcher_pid,SIGUSR1);
+					kill(watcher_pid,SIGUSR1);
 
 			}
 		}
@@ -269,8 +263,8 @@ int jug_sandbox_run(
 
 	//
 
-	close(out_pipe[0]);
-	close(out_pipe[1]);
+	close(run_params_struct->out_pipe[0]);
+	close(run_params_struct->out_pipe[1]);
 
 	/*
 	 */
@@ -292,7 +286,7 @@ int jug_sandbox_child(void* arg){
 	//
 	struct clone_child_params* ccp=(struct clone_child_params*)arg;
 
-	sethostname("BeqqiHostName",30);
+	sethostname("KudosHostName",30);
 	setdomainname("KudosJudgeDomain",30);
 	//we're using linux cgroups
 	if(ccp->sandbox_struct->use_cgroups){
@@ -350,7 +344,7 @@ int jug_sandbox_child(void* arg){
 	//	pipe stuff, doing it in InnerWatcher side
 	//	redirect stdout to the output transferring pipe
 	while (1){
-		fail=dup2(out_pipe[1],STDOUT_FILENO);
+		fail=dup2(ccp->run_params_struct->out_pipe[1],STDOUT_FILENO);
 		if(fail==-1){
 			debugt("jug_sandbox_child","cannot dup2 the output of the pipe : %s",strerror(errno));
 			if(errno==EINTR)
@@ -365,14 +359,14 @@ int jug_sandbox_child(void* arg){
 		//but, if they provide a fd where they supposed to write the data, redirect stdin to the
 		// receiving end of the input transferring pipe.
 	}else{
-		dup2(in_pipe[0],STDIN_FILENO);
+		dup2(ccp->run_params_struct->in_pipe[0],STDIN_FILENO);
 	}
 
 
-	close(out_pipe[0]);
-	close(out_pipe[1]);
-	close(in_pipe[0]);
-	close(in_pipe[1]);
+	close(ccp->run_params_struct->out_pipe[0]);
+	close(ccp->run_params_struct->out_pipe[1]);
+	close(ccp->run_params_struct->in_pipe[0]);
+	close(ccp->run_params_struct->in_pipe[1]);
 
 	//Fork to the submission binary
 	//set up an alarm of maximum execution (wall clock) time.
@@ -792,14 +786,14 @@ unsigned long jug_sandbox_memory_usage(pid_t pid){
 	content[r]='\0';
 	sscanf(content,"%ld %ld %ld %ld %ld %ld %ld",&vmsize,&resident,&share,&text,&lib,&data,&dt);
 
-	//	debugt("mem_usage","content : %ld %ld %ld %ld %ld %ld %ld ",
-	//								vmsize*page_size,
-	//								resident*page_size,
-	//								share*page_size,
-	//								text*page_size,
-	//								lib*page_size,
-	//								data*page_size,
-	//								dt*page_size);
+		debugt("mem_usage","content : %ld %ld %ld %ld %ld %ld %ld ",
+									vmsize*page_size,
+									resident*page_size,
+									share*page_size,
+									text*page_size,
+									lib*page_size,
+									data*page_size,
+									dt*page_size);
 
 	//
 	close(procfd);
@@ -877,16 +871,7 @@ void watcher_sig_handler(int sig){
 
 
 
-/**
- *
- */
 
-void parent_sig_handler(int sig){
-	if(sig==SIGINT){
-		debugt("signal","int received a sat in the parent process");
-		//kill(innerwatcher_pid,SIGALRM);
-	}
-}
 
 
 

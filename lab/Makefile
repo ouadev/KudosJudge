@@ -16,8 +16,11 @@ runner_php.o:runner_php.c
 	gcc -c runner_php.c -o runner_php.o -ggdb
 
 #thread
-thread:thread.c
-	gcc thread.c -o thread -lpthread
+thread: thread.o ../iniparser/iniparser.o ../config.o ../log.o ../sandbox.o ../compare.o ../ramfs.o
+	gcc thread.o ../iniparser/iniparser.o ../config.o ../log.o ../sandbox.o ../compare.o ../ramfs.o \
+	-o thread -lcgroup -lpthread
+thread.o:thread.c
+	gcc -c thread.c -o thread.o -lpthread
 	
 #signal
 signal: signal.c
