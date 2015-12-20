@@ -36,7 +36,7 @@
  * + if cgroups are not used, use setrlimit to limit memory usage
  *
  */
-//TODO: change memory cgroup limit for each run
+
 int jug_sandbox_run(
 		struct run_params* run_params_struct,
 		struct sandbox* sandbox_struct,
@@ -190,7 +190,8 @@ int jug_sandbox_run(
 		//use simultaneous read
 		//ps:ublocking read
 		count=read(run_params_struct->out_pipe[0],buffer,255);
-		//if(count!=-1) write(STDOUT_FILENO,buffer,count);
+		if(ccp->sandbox_struct->show_submission_output && count!=-1 )
+			write(STDOUT_FILENO,buffer,count);
 		if(count>0){ //some bytes are read
 			nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,0);
 			if(nequal==0)		comp_result=JS_CORRECT;
@@ -261,15 +262,21 @@ int jug_sandbox_run(
 	else
 		debugt("spawner","spawning failed before execvp()");
 
-	//
+	//result
+	run_params_struct->result=result;
+
+	/*
+	 * Close all opened file descriptors
+	 * Free All Malloced memory areas
+	 */
 
 	close(run_params_struct->out_pipe[0]);
 	close(run_params_struct->out_pipe[1]);
+	free(ccp->sandbox_struct->chroot_dir);
+	free(ccp);
+	free(stack);
 
-	/*
-	 */
 
-	ccp->run_params_struct->result=result;
 	return 0;
 }
 
@@ -286,7 +293,7 @@ int jug_sandbox_child(void* arg){
 	//
 	struct clone_child_params* ccp=(struct clone_child_params*)arg;
 
-	sethostname("KudosHostName",30);
+	sethostname("KudosJudgeHostName",30);
 	setdomainname("KudosJudgeDomain",30);
 	//we're using linux cgroups
 	if(ccp->sandbox_struct->use_cgroups){
@@ -392,21 +399,35 @@ int jug_sandbox_child(void* arg){
 		long binary_forked_pid;
 		//consume the first stopping event
 
-		wait(NULL);
-		if (ptrace(PTRACE_SETOPTIONS, binary_pid, 0, PTRACE_O_TRACEEXIT)) {
-			debugt("watcher"," ptrace(PTRACE_SETOPTIONS, ...) failed : %s",strerror(errno));
+		wait(&estatus);
+		debugt("[watcher]","first stop with sig:%d, binary:%d",WSTOPSIG(estatus),binary_pid);
+		//		if (ptrace(PTRACE_SETOPTIONS, binary_pid, 0, PTRACE_O_TRACEEXIT)) {
+		//			debugt("watcher"," ptrace(PTRACE_SETOPTIONS, ...) failed : %s",strerror(errno));
+		//			exit(-21);
+		//		}
 
+		if(ptrace(PTRACE_SETOPTIONS,binary_pid,0,
+				PTRACE_O_TRACEEXIT |
+				PTRACE_O_TRACEFORK |
+				PTRACE_O_TRACEVFORK|
+				PTRACE_O_TRACECLONE
+		)){
+			debugt("watcher"," ptrace(PTRACE_SETOPTIONS,...) failed: %s",strerror(errno));
 			exit(-21);
 		}
-		if(ptrace(PTRACE_SETOPTIONS,binary_pid,0,PTRACE_O_TRACEFORK)){
-			debugt("watcher"," ptrace(PTRACE_SETOPTIONS, ...,PTRACE_O_TRACEFORK) failed: %s",strerror(errno));
-			exit(-21);
-		}
-		if(ptrace(PTRACE_SETOPTIONS,binary_pid,0,PTRACE_O_TRACEEXEC)){
-			debugt("watcher"," ptrace(PTRACE_SETOPTIONS, ...,PTRACE_O_TRACEEXEC) failed: %s",strerror(errno));
-			exit(-21);
-		}
-		ptrace(PTRACE_CONT,binary_pid,NULL,NULL);
+		//		if(ptrace(PTRACE_SETOPTIONS,binary_pid,0,PTRACE_O_TRACEVFORK)){
+		//			debugt("watcher"," ptrace(PTRACE_SETOPTIONS, ...,PTRACE_O_TRACEVFORK) failed: %s",strerror(errno));
+		//			exit(-21);
+		//		}
+		//		if(ptrace(PTRACE_SETOPTIONS,binary_pid,0,PTRACE_O_TRACECLONE)){
+		//			debugt("watcher"," ptrace(PTRACE_SETOPTIONS, ...,PTRACE_O_TRACECLONE) failed: %s",strerror(errno));
+		//			exit(-21);
+		//		}
+		//		if(ptrace(PTRACE_SETOPTIONS,binary_pid,0,PTRACE_O_TRACEEXEC)){
+		//			debugt("watcher"," ptrace(PTRACE_SETOPTIONS, ...,PTRACE_O_TRACEEXEC) failed: %s",strerror(errno));
+		//			exit(-21);
+		//		}
+		ptrace(PTRACE_CONT,binary_pid,0,NULL);
 		//watcher main loop
 		while(1){
 			waitpid(binary_pid,&estatus,0);
@@ -428,6 +449,7 @@ int jug_sandbox_child(void* arg){
 					//fflush(stdout);
 				}
 				//shit, he's trying to fork. kill it.
+
 				if( 	(estatus>>8 == (SIGTRAP | (PTRACE_EVENT_FORK<<8))) ||
 						(estatus>>8 == (SIGTRAP | (PTRACE_EVENT_CLONE<<8)))||
 						(estatus>>8 == (SIGTRAP | (PTRACE_EVENT_VFORK<<8)))  ){
@@ -465,11 +487,11 @@ int jug_sandbox_child(void* arg){
 				//stopped by SIGCHLD, may be trying to execute system()
 				//actually this shouldn't happen: sigchld shouldn't be delivered to the binary
 				//because that means that the binary successeded to fork.
-				if(stop_sig==SIGCHLD){
-					debugt("watcher","binary received SIGCHLD");
-					kill(binary_pid,SIGKILL);
-					bin_killed=1;
-				}
+				//				if(stop_sig==SIGCHLD){
+				//					debugt("watcher","binary received SIGCHLD");
+				//					kill(binary_pid,SIGKILL);
+				//					bin_killed=1;
+				//				}
 
 				fail = ptrace(PTRACE_CONT,binary_pid,NULL,NULL);
 				//debugt("watcher","binary continuing ...");
@@ -518,7 +540,11 @@ int jug_sandbox_child(void* arg){
 	//GrandChild code (binary)
 	//ptraceed ...
 
-	ptrace(PTRACE_TRACEME,0,NULL,NULL);
+	if(ptrace(PTRACE_TRACEME, 0, (char *)1, 0) < 0){
+		debugt("binary","cannot PTRACE_TRACEME");
+		char* p;char c;c=*p;
+		exit(99);
+	}
 	//printf("Hacked By Ouadev01\n");
 	//fflush(stdout);
 	//set rlimits
@@ -574,15 +600,21 @@ int jug_sandbox_child(void* arg){
 		exit(113);
 	}
 
+	//
+	long mem_used=jug_sandbox_memory_usage(getpid());
+	int cputime_used=jug_sandbox_cputime_usage(getpid());
+	debugt("...Binary..","Memory Initial : mem:%ldB\tcputime:%ldms",mem_used,cputime_used);
+
 	//oof, execute
 	char* sandbox_envs[2]={
 			"MESSAGE=Nice, you got here? send me ENV to ouadimjamal@gmail.com",
 			NULL};
 
 
-	ccp->argv[0]="/22102010";
-
+	ccp->argv[0]="/KudosBinary";
+	debugt("binary","line before launching (%s)",ccp->binary_path);
 	execvpe(ccp->binary_path,ccp->argv,sandbox_envs);
+	debugt("binary","error execvp, %d, %s",errno==EFAULT,strerror(errno));
 	return -999;
 }
 
@@ -657,6 +689,13 @@ int jug_sandbox_init(struct sandbox* sandbox_struct){
 		return -1;
 	}
 	sb->kill_on_compout= atoi(value);
+	//show submission's output on the screen
+	//show_submission_output
+	if( (value=jug_get_config("Executer","show_submission_output") )==NULL ){
+		debugt("sandbox","cannot read show_submission_output config");
+		return -1;
+	}
+	sb->show_submission_output= atoi(value);
 	//fill sandbox's state
 	sb->nbr_instances=0;
 
@@ -786,14 +825,14 @@ unsigned long jug_sandbox_memory_usage(pid_t pid){
 	content[r]='\0';
 	sscanf(content,"%ld %ld %ld %ld %ld %ld %ld",&vmsize,&resident,&share,&text,&lib,&data,&dt);
 
-		debugt("mem_usage","content : %ld %ld %ld %ld %ld %ld %ld ",
-									vmsize*page_size,
-									resident*page_size,
-									share*page_size,
-									text*page_size,
-									lib*page_size,
-									data*page_size,
-									dt*page_size);
+	debugt("mem_usage","content : %ld %ld %ld %ld %ld %ld %ld ",
+			vmsize*page_size,
+			resident*page_size,
+			share*page_size,
+			text*page_size,
+			lib*page_size,
+			data*page_size,
+			dt*page_size);
 
 	//
 	close(procfd);

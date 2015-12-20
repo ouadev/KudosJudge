@@ -35,9 +35,12 @@
 
 void *work(void* arg)
 {
-	char** argument=(char**)arg;
-	char* sresult=argument[0];
-	argument+=1;
+
+	char** args=(char**)malloc(3*sizeof(char**));
+	args[0]=(char*)malloc(99);
+	strcpy(args[0],arg);
+	args[1]=NULL;
+
 	int ret;
 	struct sandbox sb;
 	ret=jug_sandbox_init(&sb);
@@ -60,11 +63,11 @@ void *work(void* arg)
 	runp.compare_output=compare_output;
 	runp.fd_output_ref=rightfd;
 
-	jug_sandbox_run(&runp,&sb,argument[0],argument+1);
+	jug_sandbox_run(&runp,&sb,args[0],args);
 
 	result=runp.result;
-	//debugt("test_sandbox","Executer result is : %s",jug_sandbox_result_str(result));
-	strcpy(sresult,jug_sandbox_result_str(result));
+	debugt("[[Thread]]","Executer result is : %s",jug_sandbox_result_str(result));
+
 
 	close(infd);
 	close(rightfd);
@@ -79,19 +82,38 @@ void *work(void* arg)
  */
 int main(void)
 {
-	pthread_t threads[2];
-	int i;
+	printf("Start Thread Experiment\n");
+	pthread_t threads[5];
+	int i,nt=2;
+	char sr0[500],sr1[500];
+	char* prog1=(char*)malloc(80);
+	char* prog2=(char*)malloc(80);
+	strcpy(prog1,"/opt/twins");
+	strcpy(prog2,"/opt/twins");
 
-	for(i=0;i<2;i++){
 
-		char sr[400];sr[0]='\0';
-		char* args[3]={sr,"/opt/twins",NULL};
-		pthread_create(&threads[i],NULL,work,args);
-		pthread_join(threads[i],NULL);
 
-		printf("[Launcher] result is: %s\n\n",sr);
+	pthread_create(&threads[0],NULL,work,prog1);
+//	pthread_join(threads[0],NULL);
+	printf("\n#####\n");
+	pthread_create(&threads[1],NULL,work,prog2);
+//	pthread_join(threads[1],NULL);
+	printf("\n#####\n");
+	pthread_create(&threads[2],NULL,work,prog2);
+	printf("\n#####\n");
+	pthread_create(&threads[3],NULL,work,prog2);
 
-	}
+	//pthread_join(threads[0],NULL);
 
+
+	printf("End Thread Experiment\n");
+
+	while(1);
 	exit(EXIT_SUCCESS);
 }
+
+
+
+
+
+

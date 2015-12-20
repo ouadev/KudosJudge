@@ -79,6 +79,7 @@ struct sandbox{
 	int use_cgroups; 	///< wether to use cgroups;
 	int use_setrlimit;	///< wether to use setrlimit : resources limit in linux.
 	int kill_on_compout; ///<flag: kill the submission before it terminate if it is judged wrong.
+	int show_submission_output; //<whather to show the submission's output on the screen
 
 	int mem_limit_mb_default;
 	int time_limit_ms_default;

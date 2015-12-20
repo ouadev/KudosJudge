@@ -122,6 +122,10 @@ int main(int argc,char*argv[]){
 		return -5;
 	}
 
+
+
+
+
 	infd=open("/home/odev/jug/tests/problems/twins/twins.in",O_RDWR);
 	rightfd=open("/home/odev/jug/tests/problems/twins/twins.out",O_RDWR);
 	//allocate memory for the output holder
