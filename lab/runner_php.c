@@ -35,6 +35,10 @@ int main(int argc,char*argv[]){
 	pid_t upid;
 	FILE* ufile;
 	int fail=0;
+
+
+	char* tableau=(char*)malloc(68000);
+
 	//check user
 	if(geteuid()!=0){
 		debugt("runner_php","must be run as root, uid:%d ",geteuid());
@@ -148,6 +152,7 @@ int main(int argc,char*argv[]){
 	sprintf(erfs_bin_path,"/%s/submission_%d",ramfsinfo->dirname,(int)upid);
 	debugt("runner_php","erfs_bin: %s",erfs_bin_path);
 	char *bin_args[2]={erfs_bin_path,NULL};
+
 	ret=jug_sandbox_run(&runp,&sb,erfs_bin_path,bin_args);
 	//
 	if(ret>=0){

@@ -4,11 +4,11 @@
 BUILD_JUDGE:FORCE_MAKE_PROJECT_CODE
 	cd .. && make -f Makefile
 FORCE_MAKE_PROJECT_CODE:
-
+	
 #queue
 
 #malware
-malware: malware.o ../log.o
+malware: BUILD_JUDGE  malware.o ../log.o
 	gcc malware.o ../log.o -o malware
 	cp malware /home/odev/chrootdeb/opt/malware
 
@@ -16,7 +16,7 @@ malware.o:malware.c
 	gcc -c malware.c -o malware.o 
 	
 #runner_php
-runner_php:  runner_php.o 
+runner_php: BUILD_JUDGE runner_php.o 
 	gcc runner_php.o ../iniparser/iniparser.o ../config.o ../log.o ../sandbox.o ../compare.o ../ramfs.o \
 	-o runner_php -lcgroup
 	
@@ -34,13 +34,13 @@ thread.o:thread.c
 	gcc -c thread.c -o thread.o -lpthread
 	
 #signal
-signal: signal.c
+signal: BUILD_JUDGE signal.c
 	gcc signal.c -o signal
 	
 	
 #flush
 
-flush: flush.o ../log.o
+flush: BUILD_JUDGE flush.o ../log.o
 	gcc flush.o ../log.o -o flush
 	
 flush.o:flush.c

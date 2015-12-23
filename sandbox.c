@@ -1,6 +1,9 @@
 #include "sandbox.h"
 
 /*
+ *
+//TODO: remember to add file size rlimit : RLIMIT_FSIZE
+//TODO: remember to close file descriptors before execing.
 //TODO:	make the whole stuff thread-safe.
 //TODO: remember to check the health of the rootfs before begining.
  *
@@ -124,7 +127,8 @@ int jug_sandbox_run(
 	}
 	stacktop=stack;
 	stacktop+=STACK_SIZE;
-	watcher_pid=clone(jug_sandbox_child,stacktop,CLONE_NEWUTS|CLONE_NEWNET|CLONE_NEWPID|CLONE_NEWNS|SIGCHLD,(void*)ccp);
+	int JUG_CLONE_SANDBOX=CLONE_NEWUTS|CLONE_NEWNET|CLONE_NEWPID|CLONE_NEWNS;
+	watcher_pid=clone(jug_sandbox_child,stacktop,JUG_CLONE_SANDBOX|SIGCHLD,(void*)ccp);
 	if(watcher_pid==-1){
 		debugt("jug_sandbox_run","cannot clone() the submission executer, linux error: %s",strerror(errno));
 		return -2;
@@ -380,7 +384,7 @@ int jug_sandbox_child(void* arg){
 	signal(SIGALRM,watcher_sig_handler);
 	alarm(ccp->sandbox_struct->walltime_limit_ms_default/1000);
 
-	////fork
+	////forking to the process that will execute the binary.
 	debugt("watcher","forking to the binary...");
 	binary_pid=fork();
 	if(binary_pid<0){
@@ -388,24 +392,16 @@ int jug_sandbox_child(void* arg){
 		exit(-6);
 	}
 	if(binary_pid>0){
-		//close(out_pipe[0]);
-		//close(out_pipe[1]);
-		//i'm the direct parent of the submission
+		//I'm the direct parent of the submission
 		binary_state=JS_BIN_RUNNING;
 		unsigned long mem_used=0;
 		int estatus,stop_sig;
 		int sigxcpu_received=0,sigsegv_received=0,mem_limit_exceeded=0,bin_killed=0;
 		int d_=0;
 		long binary_forked_pid;
+
 		//consume the first stopping event
-
 		wait(&estatus);
-		debugt("[watcher]","first stop with sig:%d, binary:%d",WSTOPSIG(estatus),binary_pid);
-		//		if (ptrace(PTRACE_SETOPTIONS, binary_pid, 0, PTRACE_O_TRACEEXIT)) {
-		//			debugt("watcher"," ptrace(PTRACE_SETOPTIONS, ...) failed : %s",strerror(errno));
-		//			exit(-21);
-		//		}
-
 		if(ptrace(PTRACE_SETOPTIONS,binary_pid,0,
 				PTRACE_O_TRACEEXIT |
 				PTRACE_O_TRACEFORK |
@@ -415,19 +411,9 @@ int jug_sandbox_child(void* arg){
 			debugt("watcher"," ptrace(PTRACE_SETOPTIONS,...) failed: %s",strerror(errno));
 			exit(-21);
 		}
-		//		if(ptrace(PTRACE_SETOPTIONS,binary_pid,0,PTRACE_O_TRACEVFORK)){
-		//			debugt("watcher"," ptrace(PTRACE_SETOPTIONS, ...,PTRACE_O_TRACEVFORK) failed: %s",strerror(errno));
-		//			exit(-21);
-		//		}
-		//		if(ptrace(PTRACE_SETOPTIONS,binary_pid,0,PTRACE_O_TRACECLONE)){
-		//			debugt("watcher"," ptrace(PTRACE_SETOPTIONS, ...,PTRACE_O_TRACECLONE) failed: %s",strerror(errno));
-		//			exit(-21);
-		//		}
-		//		if(ptrace(PTRACE_SETOPTIONS,binary_pid,0,PTRACE_O_TRACEEXEC)){
-		//			debugt("watcher"," ptrace(PTRACE_SETOPTIONS, ...,PTRACE_O_TRACEEXEC) failed: %s",strerror(errno));
-		//			exit(-21);
-		//		}
 		ptrace(PTRACE_CONT,binary_pid,0,NULL);
+
+
 		//watcher main loop
 		while(1){
 			waitpid(binary_pid,&estatus,0);
@@ -444,9 +430,6 @@ int jug_sandbox_child(void* arg){
 						debugt("watcher","out of allowed memory");
 						mem_limit_exceeded=1;
 					}
-					//NOTE: I think flushing is not necessary, because the read() in the other part
-					//of the pipe is clearing the buffer each time it reads.
-					//fflush(stdout);
 				}
 				//shit, he's trying to fork. kill it.
 
@@ -484,14 +467,6 @@ int jug_sandbox_child(void* arg){
 					//sigsegv if segv must be killed
 					kill(binary_pid,SIGKILL);
 				}
-				//stopped by SIGCHLD, may be trying to execute system()
-				//actually this shouldn't happen: sigchld shouldn't be delivered to the binary
-				//because that means that the binary successeded to fork.
-				//				if(stop_sig==SIGCHLD){
-				//					debugt("watcher","binary received SIGCHLD");
-				//					kill(binary_pid,SIGKILL);
-				//					bin_killed=1;
-				//				}
 
 				fail = ptrace(PTRACE_CONT,binary_pid,NULL,NULL);
 				//debugt("watcher","binary continuing ...");
@@ -603,7 +578,7 @@ int jug_sandbox_child(void* arg){
 	//
 	long mem_used=jug_sandbox_memory_usage(getpid());
 	int cputime_used=jug_sandbox_cputime_usage(getpid());
-	debugt("...Binary..","Memory Initial : mem:%ldB\tcputime:%ldms",mem_used,cputime_used);
+	debugt("...Binary..","Memory Before Exec : mem:%ldB\tcputime:%ldms",mem_used,cputime_used);
 
 	//oof, execute
 	char* sandbox_envs[2]={
@@ -611,8 +586,8 @@ int jug_sandbox_child(void* arg){
 			NULL};
 
 
+
 	ccp->argv[0]="/KudosBinary";
-	debugt("binary","line before launching (%s)",ccp->binary_path);
 	execvpe(ccp->binary_path,ccp->argv,sandbox_envs);
 	debugt("binary","error execvp, %d, %s",errno==EFAULT,strerror(errno));
 	return -999;
