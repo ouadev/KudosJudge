@@ -4,8 +4,6 @@
 BUILD_JUDGE:FORCE_MAKE_PROJECT_CODE
 	cd .. && make -f Makefile
 FORCE_MAKE_PROJECT_CODE:
-	
-#queue
 
 #malware
 malware: BUILD_JUDGE  malware.o ../log.o

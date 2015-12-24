@@ -1,5 +1,5 @@
 # Global Makefile to compile (gcc -c) the libraries used in the project, and its components
-SUBDIRS=iniparser
+SUBDIRS=iniparser proc_maps_parser
 
 #compile root directory
 all: subdirs log.o config.o ramfs.o sandbox.o compare.o
@@ -28,6 +28,6 @@ $(SUBDIRS):
 
 #clean
 clean:
-	rm log.o config.o ramfs.o iniparser/iniparser.o sandbox.o compare.o
+	rm log.o config.o ramfs.o iniparser/iniparser.o sandbox.o compare.o proc_maps_parser/pmparser.o
 
 
