@@ -8,7 +8,13 @@
 #include "log.h"
 
 
-
+/**
+ * globals
+ *
+ */
+//the tags to focus on
+short _is_focus_tags=0;
+char _focus_tags[20][10];//10 of 20-chars strings
 
 
 void debug(char* message,...){
@@ -38,6 +44,20 @@ void debugll(char*message,...){
 }
 
 void debugt(char*tag,char*message,...){
+	//check focus_tags
+	if(_is_focus_tags){
+		short inside=0,i=0;
+		for(i=0;i<8;i++){
+			//printf("ft %i : %s, cmp=%d\n",i,_focus_tags[i],strncmp(_focus_tags[i],tag,20));
+			if(strncmp(_focus_tags[i],tag,20)==0){
+				inside=1;
+				break;
+			}
+		}
+		if(!inside) return;
+	}
+
+	//process
 	char* dbg_msg=(char*)malloc(strlen(message)+strlen(tag)+120);
 	va_list args;
 	va_start(args,message);
@@ -59,6 +79,35 @@ void print_bytes(char*buffer,int len){
 
 	}
 	fprintf(stderr,"\n");
+}
+
+
+//void debug_focus(char* tags[]);
+void debug_focus(char* tags[]){
+
+	int max_tags=8;
+	int i=0;
+	if(tags==NULL)
+		_is_focus_tags=0;
+
+	while(tags[i]!=NULL && i<=max_tags){
+		strncpy(_focus_tags[i],tags[i],19);
+		i++;
+	}
+
+
+	_focus_tags[i][0]='\0';
+	_is_focus_tags=1;
+
+}
+
+void print_focus_tags(){
+	int i=0;
+	while(_focus_tags[i][0]!='\0' && i<10){
+
+		printf("Focus On: [%s]\n",_focus_tags[i]);
+		i++;
+	}
 }
 
 

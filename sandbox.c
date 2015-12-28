@@ -578,7 +578,7 @@ int jug_sandbox_child(void* arg){
 	//
 	long mem_used=jug_sandbox_memory_usage(getpid());
 	int cputime_used=jug_sandbox_cputime_usage(getpid());
-	debugt("...Binary..","Memory Before Exec : mem:%ldB\tcputime:%ldms",mem_used,cputime_used);
+	debugt("Binary","Memory Before Exec : mem:%ldMB\tcputime:%ldms",mem_used/1000000,cputime_used);
 
 	//oof, execute
 	char* sandbox_envs[2]={

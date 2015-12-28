@@ -27,6 +27,23 @@
 
 #include "../sandbox.h"
 
+/**
+ * globals
+ */
+
+pthread_t threads[5];
+/**
+ *
+ * child_atfork
+ *
+ */
+
+void __atfork(){
+	int i;
+	for(i=0;i<5;i++)
+		pthread_detach(threads[i]);
+}
+
 /*
  *
  * Work()
@@ -71,7 +88,7 @@ void *work(void* arg)
 
 	close(infd);
 	close(rightfd);
-
+	pthread_detach(pthread_self());
 	return NULL;
 }
 
@@ -82,8 +99,12 @@ void *work(void* arg)
  */
 int main(void)
 {
+	//init debugging params
 	printf("Start Thread Experiment\n");
-	pthread_t threads[5];
+	char* tags[6]={"Binary",NULL};
+	debug_focus(tags);
+
+	//threading
 	int i,nt=2;
 	char sr0[500],sr1[500];
 	char* prog1=(char*)malloc(80);
@@ -91,6 +112,7 @@ int main(void)
 	strcpy(prog1,"/opt/twins");
 	strcpy(prog2,"/opt/twins");
 
+	pthread_atfork(NULL,NULL,__atfork);
 
 
 	pthread_create(&threads[0],NULL,work,prog1);
@@ -103,12 +125,12 @@ int main(void)
 	printf("\n#####\n");
 	pthread_create(&threads[3],NULL,work,prog2);
 
-	//pthread_join(threads[0],NULL);
+	pthread_join(threads[0],NULL);
 
 
 	printf("End Thread Experiment\n");
 
-	while(1);
+	sleep(2);
 	exit(EXIT_SUCCESS);
 }
 
