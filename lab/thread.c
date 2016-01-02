@@ -39,9 +39,7 @@ pthread_t threads[5];
  */
 
 void __atfork(){
-	int i;
-	for(i=0;i<5;i++)
-		pthread_detach(threads[i]);
+
 }
 
 /*
@@ -52,7 +50,8 @@ void __atfork(){
 
 void *work(void* arg)
 {
-
+	const char* color_red="\033[0m";
+	fprintf(stderr,"%s",color_red);
 	char** args=(char**)malloc(3*sizeof(char**));
 	args[0]=(char*)malloc(99);
 	strcpy(args[0],arg);
@@ -88,7 +87,7 @@ void *work(void* arg)
 
 	close(infd);
 	close(rightfd);
-	pthread_detach(pthread_self());
+	//pthread_detach(pthread_self());
 	return NULL;
 }
 
@@ -100,32 +99,49 @@ void *work(void* arg)
 int main(void)
 {
 	//init debugging params
-	printf("Start Thread Experiment\n");
-	char* tags[6]={"Binary",NULL};
-	debug_focus(tags);
+//	char* tags[6]={"Binary",NULL};
+//	debug_focus(tags);
+//	debug_focus(NULL);
 
 	//threading
-	int i,nt=2;
+	int i,nt=2,error;
 	char sr0[500],sr1[500];
 	char* prog1=(char*)malloc(80);
 	char* prog2=(char*)malloc(80);
 	strcpy(prog1,"/opt/twins");
 	strcpy(prog2,"/opt/twins");
 
-	pthread_atfork(NULL,NULL,__atfork);
+//	error=pthread_atfork(NULL,NULL,__atfork);
+//	if(error){
+//		perror("pthread_atfork()\n");
+//	}
 
+	error=pthread_create(&threads[0],NULL,work,prog1);
+	if(error){
+		perror("pthread_create()\n");
+	}
+	sleep(0.2);
 
-	pthread_create(&threads[0],NULL,work,prog1);
-//	pthread_join(threads[0],NULL);
-	printf("\n#####\n");
-	pthread_create(&threads[1],NULL,work,prog2);
-//	pthread_join(threads[1],NULL);
-	printf("\n#####\n");
-	pthread_create(&threads[2],NULL,work,prog2);
-	printf("\n#####\n");
-	pthread_create(&threads[3],NULL,work,prog2);
+	error=pthread_create(&threads[1],NULL,work,prog2);
+	if(error){
+		perror("pthread_create()\n");
+	}
+	sleep(0.2);
 
-	pthread_join(threads[0],NULL);
+	error=pthread_create(&threads[2],NULL,work,prog2);
+	if(error){
+		perror("pthread_create()\n");
+	}
+	sleep(0.2);
+
+	error=pthread_create(&threads[3],NULL,work,prog2);
+	if(error){
+		perror("pthread_create()\n");
+	}
+
+//	int t=0;
+//	for(t=0;i<4;t++)
+//		pthread_join(threads[i],NULL);
 
 
 	printf("End Thread Experiment\n");

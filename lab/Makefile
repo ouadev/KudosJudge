@@ -23,7 +23,13 @@ runner_php.o:runner_php.c
 	gcc -c runner_php.c -o runner_php.o -ggdb
 
 
-
+#launcher
+launcher: BUILD_JUDGE launcher.o 
+	gcc launcher.o ../iniparser/iniparser.o ../config.o ../log.o ../sandbox.o ../compare.o ../ramfs.o \
+	-o launcher -lcgroup
+	
+launcher.o: launcher.c
+	gcc -c launcher.c -o launcher.o 
 #thread
 thread: BUILD_JUDGE thread.o 
 	gcc thread.o ../iniparser/iniparser.o ../config.o ../log.o ../sandbox.o ../compare.o ../ramfs.o \
