@@ -13,13 +13,6 @@
 //TODO:	Interpreters limits (java, python,...)
 
 
-
-@note:	there is a lack of sight for why system() lib function is not captured by
-		the tracing technique, even if it's using exec() which a syscall that we can
-		capture. for now, it can't do harm, because we're running with very unpriveleged
-		user, and actually the attacker can rewrite any linux binary with hand wich is equivalent
-		to running it.
-
 @note:	/var/tmp is a directory used to save old files after reboot. obviously we don't need it to run a
 		submission, so instead of removing it, which could affects the job of some interpreters, we mounted
 		the directory /tmp over it. By doing so the content of /var/tmp (==/tmp) will be cleared after exiting.
@@ -39,7 +32,7 @@
  * + if cgroups are not used, use setrlimit to limit memory usage
  *
  */
-
+//[main_process/some_thread]
 int jug_sandbox_run(
 		struct run_params* run_params_struct,
 		struct sandbox* sandbox_struct,
@@ -78,7 +71,8 @@ int jug_sandbox_run(
 
 	if( ! (fd_datasource_status&O_RDWR)){
 		if( fd_datasource_dir==0 &&  !(fd_datasource_status&O_RDONLY) ){
-			debugt("jug_sandbox_run","fd_datasource dir 0 is not readible , (%d,%d)",fd_datasource_status&O_RDWR,fd_datasource_status&O_RDONLY);
+			debugt("jug_sandbox_run","fd_datasource dir 0 is not readible , (%d,%d)",
+					fd_datasource_status&O_RDWR,fd_datasource_status&O_RDONLY);
 			return -6;
 		}
 		if(fd_datasource_dir && !(fd_datasource_status&O_WRONLY)){
@@ -284,12 +278,68 @@ int jug_sandbox_run(
 	return 0;
 }
 
+/**
+ * run in template mode
+ */
+int jug_sandbox_run_tpl(
+		struct run_params* run_params_struct,
+		struct sandbox* sandbox_struct,
+		char* binary_path,
+		char*argv[],
+		int thread_order){
+	//locals
+	int watcher_pid;
+	int received_bytes=0;
+	//some checking
+	//if the caller didn't want to specify some limits, replace them with the Config's defaults.
+	if(run_params_struct->mem_limit_mb<0)
+		run_params_struct->mem_limit_mb=sandbox_struct->mem_limit_mb_default;
+	if(run_params_struct->time_limit_ms<0)
+		run_params_struct->time_limit_ms=sandbox_struct->time_limit_ms_default;
+
+	//debug: print limits as (cputime,walltime,memory)
+	debugt("watcher","limits (%dms,%dms,%dMB)",
+			run_params_struct->time_limit_ms,
+			sandbox_struct->walltime_limit_ms_default,
+			run_params_struct->mem_limit_mb);
+
+	//check fd_in a fd_out
+	//TODO: integrate io_pipes pool
+
+	/* receive output at out_pipe[0], */
+	//init the execution state, not started yet.
+
+	//clone inside the sandbox
+	struct clone_child_params* ccp=(struct clone_child_params*)malloc(sizeof(struct clone_child_params));
+	ccp->run_params_struct=run_params_struct;
+	ccp->sandbox_struct=sandbox_struct;
+	ccp->binary_path=binary_path;
+	ccp->argv=argv;
+
+	//serialize
+	void* serial;
+	int serial_len=jug_sandbox_template_serialize(&serial,ccp);
+
+
+	watcher_pid=jug_sandbox_template_clone(serial,serial_len);
+	free(ccp);
+	if(watcher_pid==-1){
+		debugt("jug_sandbox_run_tpl","cannot clone() the template");
+		return -2;
+	}
+
+	//set the global inner watcher process id
+	run_params_struct->watcher_pid=watcher_pid;
+
+
+}
 
 /**
  * jug_sandbox_child(), aka Watcher
  *
  *
  */
+//reside@[main_process], run@[template_forked_process|watcher_process]
 int jug_sandbox_child(void* arg){
 	int fail=0;
 	//
@@ -718,6 +768,300 @@ int jug_sandbox_init(struct sandbox* sandbox_struct){
 	return 0;
 }
 
+//
+// jug_sandbox_init_template_process (\\[main_process\main_thread])
+//
+int jug_sandbox_template_init(){
+	template_pid=-1;
+	int i;
+	//io pipes with the template clone
+	for(i=0;i<THREADS_MAX;i++){
+		if(pipe(io_pipes_in[i])==-1 || pipe(io_pipes_out[i])==-1){
+			debugt("js_template_init","cannot init io pipes pool");
+			return -4;
+		}
+
+	}
+	//template process communication channel
+	if(pipe(template_pipe_rx)==-1){
+		debugt("js_template_init","cannot init template_pipe_rx: %s",strerror(errno));
+		return -3;
+	}
+	if(pipe(template_pipe_tx)==-1){
+		debugt("js_template_init","cannot init template_pipe_tx: %s",strerror(errno));
+		return -3;
+	}
+	pthread_mutex_init(&template_pipe_mutex, NULL);
+	//
+	//clone
+	char* tpl_stack;
+	char *tpl_stacktop;
+	int STACK_SIZE=2*1000000; //2MB is enough
+	tpl_stack=(char*)malloc(STACK_SIZE);
+	if(!tpl_stack){
+		return -1;
+	}
+	tpl_stacktop=tpl_stack;
+	tpl_stacktop+=STACK_SIZE;
+	template_pid=clone(jug_sandbox_template,tpl_stacktop,SIGCHLD,NULL);
+	if(template_pid==-1){
+		debugt("js_template_init","cannot clone() the template process : %s",strerror(errno));
+		return -2;
+	}
+	for(i=0;i<THREADS_MAX;i++){
+		close(io_pipes_in[i][PIPE_READFROM]);
+		close(io_pipes_out[i][PIPE_WRITETO]);
+	}
+	close(template_pipe_rx[PIPE_WRITETO]);
+	close(template_pipe_tx[PIPE_READFROM]);
+	free(tpl_stack);
+	debugt("js_template_init","template process launched, pid=%d",template_pid);
+	return 0;
+}
+
+//
+//jug_sandbox_template (\\[template_process])
+//
+int jug_sandbox_template(void*arg){
+	close(template_pipe_rx[PIPE_READFROM]);
+	close(template_pipe_tx[PIPE_WRITETO]);
+	signal(SIGUSR1,jug_sandbox_template_sighandler);
+	while(1) sleep(20);
+	return 0;
+}
+
+//jug_sandbox_child_empty
+int jug_sandbox_child_empty(void* arg){
+	debugt("js_child_empty","o");
+
+	struct clone_child_params* ccp=(struct clone_child_params*)arg;
+
+	debugt("child_empty","binary_path=%s",ccp->binary_path);
+
+	fflush(stdout);
+	return 31;
+}
+
+// jug_sandbox_template_sighandler (\\[template_process:sighandler])
+void jug_sandbox_template_sighandler(int sig){
+	debugt("js_tpl_sighandler","sig received : %d",sig);
+	if(sig!=SIGUSR1) return;
+	//
+	char pipe_buf[8];
+	pid_t cloned_pid;
+	int rd;
+	unsigned char* tx_buf=(unsigned char*)malloc(TEMPLATE_MAX_TX*sizeof(unsigned char) );
+	//read void*arg from the pipe
+	rd=read(template_pipe_tx[PIPE_READFROM],tx_buf,TEMPLATE_MAX_TX);
+	if(rd<=0){
+		debugt("js_tpl_sighandler","cannot read tx data from caller, read=%d",rd);
+		sprintf(pipe_buf,"%d",-1);
+		write(template_pipe_rx[PIPE_WRITETO],pipe_buf,strlen(pipe_buf)+1);
+		return ;
+	}
+	//unserialize
+	struct clone_child_params* ccp=jug_sandbox_template_unserialize(pipe_buf);
+
+
+	return;
+	//clone preparation
+	char* cloned_stack;
+	char *cloned_stacktop;
+	int STACK_SIZE=10*1000000; //10MB
+	cloned_stack=(char*)malloc(STACK_SIZE);
+	if(!cloned_stack){
+		debugt("js_tpl_sighandler","cannot malloc the stack for clone");
+		sprintf(pipe_buf,"%d",-1);
+		write(template_pipe_rx[PIPE_WRITETO],pipe_buf,strlen(pipe_buf)+1);
+		return ;
+	}
+	cloned_stacktop=cloned_stack;
+	cloned_stacktop+=STACK_SIZE;
+
+	cloned_pid=clone(jug_sandbox_child_empty,cloned_stacktop,CLONE_PARENT|SIGCHLD,(void*)ccp);
+	if(cloned_pid==-1){
+		debugt("js_tpl_sighandler","cannot clone: %s",strerror(errno));
+		sprintf(pipe_buf,"%d",-2);
+		write(template_pipe_rx[PIPE_WRITETO],pipe_buf,strlen(pipe_buf)+1);
+	}else{
+		sprintf(pipe_buf,"%d",(int)cloned_pid);
+		write(template_pipe_rx[PIPE_WRITETO],pipe_buf,strlen(pipe_buf)+1);
+	}
+
+	free(cloned_stack);
+	free(tx_buf);
+	jug_sandbox_template_freeccp(ccp);
+	return;
+
+}
+
+// jug_sandbox_template_clone (\\[main_process/some_thread])
+pid_t jug_sandbox_template_clone(void*arg, int len){
+	//
+	if(template_pid<0){
+		debugt("js_template_clone","template_pid<0");
+		return (pid_t)-1;
+	}
+	//decl
+	char pipe_buf[8];
+	int is_read=1,wr=0;
+	struct timeval pipe_read_timeout;
+	fd_set _set;
+	int slct;
+	//
+	pipe_read_timeout.tv_sec=2;
+	pipe_read_timeout.tv_usec=0;
+	FD_ZERO(&_set);
+	FD_SET(template_pipe_rx[PIPE_READFROM],&_set);
+	pthread_mutex_lock(&template_pipe_mutex);
+	//eat all previous data (must use select to control timeout)
+	//read(template_pipe_rx[PIPE_READFROM],pipe_buf,255);
+	if(kill(template_pid,SIGUSR1)==-1){
+		debugt("js_template_clone","cannot deliver SIGUSR1 signal");
+		pthread_mutex_unlock(&template_pipe_mutex);
+		return (pid_t)-1;
+	}
+	//write void*arg
+	wr=write(template_pipe_tx[PIPE_WRITETO],arg,len);
+	debugt("js_template_clone","void*arg written,len=%d,wr=%d",len,wr);
+	//read my data
+	slct=select(template_pipe_rx[PIPE_READFROM]+1,&_set,NULL,NULL,&pipe_read_timeout);
+	if(slct>0){
+		is_read=read(template_pipe_rx[PIPE_READFROM],pipe_buf,255);
+	}
+	pthread_mutex_unlock(&template_pipe_mutex);
+	if(slct<0){
+		debugt("js_template_clone","error select");
+		return (pid_t)-1;
+	}else if(slct==0){
+		debugt("js_template_clone","timeout select, think about some sync system, to avoid reading someone else data");
+		return (pid_t)-1;
+	}
+	if(is_read<0){
+		debugt("js_template_clone","cannot read the pid of the cloned process: %s",strerror(errno));
+		return -1;
+	}else if(is_read==0){
+		debugt("js_template_clone","nothing read from template_pipe");
+		return -1;
+	}else{
+		return (pid_t)atoi(pipe_buf);
+	}
+
+
+}
+
+//jug_sandbox_template_term //[main_process/any_thread]
+void jug_sandbox_template_term() {
+	kill(template_pid,SIGKILL);
+	template_pid=-1;
+}
+//jug_sandbox_template_serialize
+int jug_sandbox_template_serialize(
+		void** p_serial,
+		struct clone_child_params* ccp){
+	//run_params|sandbox|char[]binary_path|argc|argv[0]|argv[1]|....|'\0'
+	int i,sz,index,argc;
+	//calc size
+	sz=sizeof(struct run_params)+sizeof(struct sandbox)+(strlen(ccp->binary_path)+1);
+	i=0;argc=0;
+
+	while(ccp->argv[i]!=NULL){
+		argc+=1;
+		sz+=strlen(ccp->argv[i])+1;
+		i++;
+	}
+
+	sz+=sizeof(int); //for argc
+	//malloc
+
+	void* serial=malloc(sz);
+	*p_serial=serial;
+
+	//fill
+	//run_params_struct
+	index=0;
+	memcpy(serial+index,ccp->run_params_struct,sizeof(struct run_params));
+	index+=sizeof(struct run_params);
+	//sandbox
+	memcpy(serial+index,ccp->sandbox_struct,sizeof(struct sandbox));
+	index+=sizeof(struct sandbox);
+	//binary_path
+	memcpy(serial+index,ccp->binary_path,strlen(ccp->binary_path)+1);
+	index+=strlen(ccp->binary_path)+1;
+	//argc
+	memcpy(serial+index,&argc,sizeof(int));
+	index+=sizeof(int);
+	//argv
+	i=0;
+	while(ccp->argv[i]!=NULL){
+		memcpy(serial+index,ccp->argv[i],strlen(ccp->argv[i])+1);
+		index+=strlen(ccp->argv[i])+1;
+		i++;
+	}
+
+	//
+	return sz;
+
+}
+
+//unserilize
+struct clone_child_params* jug_sandbox_template_unserialize(void*serial){
+	//run_params|sandbox|char[]binary_path|argc|argv[0]|argv[1]|....|'\0'
+	int index,i,argc;
+	struct clone_child_params* ccp;
+
+	ccp=(struct clone_child_params*)malloc(sizeof(struct clone_child_params));
+	index=0;
+	//run_params
+	ccp->run_params_struct=(struct run_params*)malloc(sizeof(struct run_params));
+	memcpy(ccp->run_params_struct,serial+index,sizeof(struct run_params));
+	index+=sizeof(struct run_params);
+
+	debugt("serial","mem_limit_mb:%d",ccp->run_params_struct->mem_limit_mb);
+	/****
+	 *
+	 * //TODO:debug unserialize
+	 *
+	 */
+
+	//sandbox
+	ccp->sandbox_struct=(struct sandbox*)malloc(sizeof(struct sandbox));
+	memcpy(ccp->sandbox_struct, serial+index,sizeof(struct sandbox));
+	index+=sizeof(struct sandbox);
+	//binar_path
+	i=index;
+	while(*(char*)(serial+i)!='\0') i++;
+	ccp->binary_path=(char*)malloc((i-index+1)*sizeof(char));
+	memcpy(ccp->binary_path,serial+index,(i-index+1));
+	index=i+1;
+	//argc
+	argc=0;
+	memcpy(&argc,serial+index,sizeof(int));
+	index+=sizeof(int);
+	//argv
+	ccp->argv=(char**)malloc( (argc+1)*sizeof(char*));
+	for(i=0;i<argc;i++){
+		ccp->argv[i]=(char*)malloc( strlen(serial+index)+1 );
+		memcpy(ccp->argv[i],serial+index,strlen(serial+index)+1);
+		index+=strlen(serial+index)+1;
+	}
+	ccp->argv[i]=NULL;
+	//
+	return ccp;
+
+}
+
+
+//free clone_child_params
+void jug_sandbox_template_freeccp(struct clone_child_params* ccp){
+	free(ccp->run_params_struct);
+	free(ccp->sandbox_struct);
+	free(ccp->binary_path);
+	int i=0;
+	while(ccp->argv[i]!=NULL) free(ccp->argv[i]);
+	free(ccp->argv);
+	free(ccp);
+}
 
 //jug_sandbox_create_cgroup
 //private
@@ -749,6 +1093,7 @@ int jug_sandbox_create_cgroup(struct cgroup* sandbox,struct sandbox* sandbox_str
 	return 0;
 
 }
+
 
 
 

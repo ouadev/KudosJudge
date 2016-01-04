@@ -2,9 +2,8 @@
  * Author : Ouadim Jamal ouadev@yandex.com
  * Jug Sandbox
  * It does its best to secure the execution of submissions
- * using cgroups, namespaces, setrlimit, chroot.
+ * using namespaces, setrlimit, chroot.
  * dependencies: libcgroup-dev 0.37, libcgroup1
- * futur dev: implement our own libcgroup, because it just read and write to a mounted filesystem type "cgroup"
  *
  */
 //TODO: test cgroup when libcgroup-bin is absent.
@@ -36,11 +35,16 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ptrace.h>
+#include <sys/time.h>
 
 #include "config.h"
 #include "compare.h"
 
 
+#define PIPE_WRITETO 1
+#define PIPE_READFROM 0
+#define THREADS_MAX 4 //maximum number of threads, used to create the same number of pipes (template mode)
+#define TEMPLATE_MAX_TX  1024 //1KB
 /**
  * enumeration of the Executer's different returns
  */
@@ -79,7 +83,7 @@ struct sandbox{
 	int use_cgroups; 	///< wether to use cgroups;
 	int use_setrlimit;	///< wether to use setrlimit : resources limit in linux.
 	int kill_on_compout; ///<flag: kill the submission before it terminate if it is judged wrong.
-	int show_submission_output; //<whather to show the submission's output on the screen
+	int show_submission_output; //<whether to show the submission's output on the screen
 
 	int mem_limit_mb_default;
 	int time_limit_ms_default;
@@ -107,6 +111,8 @@ struct run_params{
 	int fd_datasource_dir;	///< is it a fd where the user writes (1), or an fd to be read from by the Executer (0)
 
 	int fd_output_ref;		///< file descriptor where we get the correct output, the user should manager close() of this fd
+	//if template mode is used, this function should be
+	// mapped in main process VM before calling jug_sandbox_template_init()
 	int(*compare_output)(int,char*,int,int);	///< address to a function where the comparaison is done
 
 	//execution state variables (those are moved from globals for thread-safety)
@@ -134,24 +140,36 @@ struct clone_child_params{
 
 /**
  * Global Variables of the watcher process
- * @note They don't present a threat while threading, because
+ * @note They don't represent a threat while threading, because
  * 		 they are accessed only from the watcher process. and not from the spawner thread.
  * 		 other global-like variables are inserted in run_params in the 'execution state section'
  */
 ///< the pid of the binary, seen from inside the namespace.
 int binary_pid;
-////indicates the state of the execution of the binary
+///< indicates the state of the execution of the binary
 js_bin_state binary_state;
 
-
+///< The pid of the template process, accessed only for read.
+int template_pid;
+///< pipe used to retreive the pid of the cloned process by the template.
+int template_pipe_rx[2];
+///< pipe used to send (void*arg) argument of clone(2) to the template process
+int template_pipe_tx[2];
+///< a mutex to use for concurrent access to the template process's pipe;
+pthread_mutex_t template_pipe_mutex;
+///< pool of pipes, each calling thread uses one. the same meaning as normal mode
+int io_pipes_out[THREADS_MAX][2];
+int io_pipes_in [THREADS_MAX][2];
 
 /**
- * @desc init the sandbox
- * @param sandbox_struct a pointer to a sandbox structre to be filled
+ * @desc	init the sandbox. By design this function should be called once.
+ * @param sandbox_struct a pointer to a sandbox structer to be filled.
  * @return 0 if succeded, non-zero otherwise.
  */
 
 int jug_sandbox_init(struct sandbox* sandbox_struct);
+
+
 
 /**
  * @desc create the cgroup representing the context of the sandbox.
@@ -169,12 +187,14 @@ int jug_sandbox_create_cgroup(struct cgroup* sandbox_cgroup,struct sandbox* sand
  * 		of launching a thread for each submission, and then kill it.
  */
 
-
 int jug_sandbox_run(struct run_params* run_params_struct,
 		struct sandbox* sandbox_struct,
 		char* binary_path,
 		char*argv[]);
-
+/**
+ * jug_sandbox_child
+ * @desc the code that will be executed in the child (watcher)
+ */
 
 int jug_sandbox_child(void* arg);
 
@@ -204,17 +224,87 @@ unsigned long jug_sandbox_memory_usage(pid_t pid);
 
 unsigned long jug_sandbox_cputime_usage(pid_t pid);
 
+/**
+ * jug_sandbox_init_template
+ * @desc	spawns an empty process (light Virtual Memory), which is used as a template
+ * 			for forked submissions (watcher).
+ * 			the need for such process comes from the complications that goes with mixing pthreads and forking.
+ * 			this process receives commands by signal delivery (SIGUSR1),
+ * 			 then clones itself with the flag CLONE_PARENT is set, that way
+ * 			 the cloned process will be attached to the calling process (signal sender) as a child.
+ * @return	0 if it succeeded
+ */
 
+int jug_sandbox_template_init();
 
+/**
+ * jug_sandbox_template
+ * @desc the code that will be executed in the template process.
+ */
+int jug_sandbox_template(void*arg);
 
+/**
+ * jug_sandbox_template_sighandler
+ * @desc handler of signals. it's used to respond to forking requests from the parent.
+ * 		 the code that will be executed in the child is jug_sandbox_child function
+ */
 
+void jug_sandbox_template_sighandler(int sig);
 
+/**
+ * jug_sandbox_template_clone
+ * @desc	request the template process to spawn (clone) a new process.
+ * @param	arg pointer to data the cloned process needs. (equivalent of arg argument in clone(3))
+ * @param	len length of data pointer by arg. needed because data will be transmitted over a pipe.
+ * @return	the pid of the launched process, or <0 otherwise.
+ */
 
+pid_t jug_sandbox_template_clone(void*arg,int len);
 
+/**
+ * jug_sandbox_run_tpl
+ * @desc run a submission with template mode
+ * @param thread_order an integer that designates the caller thread. needed to route the data from
+ * 			the template clone using a pool of pipes.
+ */
 
+int jug_sandbox_run_tpl(
+		struct run_params* run_params_struct,
+		struct sandbox* sandbox_struct,
+		char* binary_path,
+		char*argv[],
+		int thread_order);
 
+/**
+ * jug_sandbox_child_empty
+ * @desc equivalent of jug_sandbox_child in template mode
+ */
 
+int jug_sandbox_child_empty(void* arg);
 
+/**
+ * jug_sandbox_template_term
+ * @desc terminate the template process
+ */
+void jug_sandbox_template_term();
 
+/**
+ * jug_sandbox_template_serialize
+ * @desc	serialize the ccp in order to transmit over a pipe.
+ * @return 	length of resulted serial
+ * @note	struct sandbox is already in vm. most of struct run_params is values rather than pointers
+ */
+int jug_sandbox_template_serialize(void**p_serial, struct clone_child_params* ccp);
+
+/**
+ * jug_sandbox_template_unserialize
+ * @desc unserialize
+ */
+struct clone_child_params* jug_sandbox_template_unserialize(void*serial);
+
+/**
+ * @desc free
+ */
+void jug_sandbox_template_freeccp(struct clone_child_params* ccp);
 
 #endif
