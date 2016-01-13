@@ -36,6 +36,7 @@
 #include <sys/stat.h>
 #include <sys/ptrace.h>
 #include <sys/time.h>
+#include <sys/sendfile.h>
 
 #include "config.h"
 #include "compare.h"
@@ -232,10 +233,12 @@ unsigned long jug_sandbox_cputime_usage(pid_t pid);
  * 			this process receives commands by signal delivery (SIGUSR1),
  * 			 then clones itself with the flag CLONE_PARENT is set, that way
  * 			 the cloned process will be attached to the calling process (signal sender) as a child.
+ * 			 Doing this gives nearly the same effect as the direct clone from the main Address Space.
  * @return	0 if it succeeded
  */
 
 int jug_sandbox_template_init();
+
 
 /**
  * jug_sandbox_template
@@ -280,11 +283,11 @@ int jug_sandbox_run_tpl(
  * @desc equivalent of jug_sandbox_child in template mode
  */
 
-int jug_sandbox_child_empty(void* arg);
+int jug_sandbox_child_tpl(void* arg);
 
 /**
  * jug_sandbox_template_term
- * @desc terminate the template process
+ * @desc terminates the template process
  */
 void jug_sandbox_template_term();
 
@@ -306,5 +309,7 @@ struct clone_child_params* jug_sandbox_template_unserialize(void*serial);
  * @desc free
  */
 void jug_sandbox_template_freeccp(struct clone_child_params* ccp);
+
+
 
 #endif

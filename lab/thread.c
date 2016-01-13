@@ -26,12 +26,20 @@
 #include <sys/ptrace.h>
 
 #include "../sandbox.h"
+/**
+ * defs
+ */
+struct worker_arg{
+	char* prog;
+	int thread_order;
+};
 
 /**
  * globals
  */
 
 pthread_t threads[5];
+struct sandbox sb;
 /**
  *
  * child_atfork
@@ -41,7 +49,36 @@ pthread_t threads[5];
 void __atfork(){
 
 }
+/*
+ * launch
+ */
 
+int launch(struct sandbox* psandbox,char*argv[],int thread_order){
+
+	pid_t pid,c_pid;
+	int ret,status;
+	int infd,rightfd;
+	jug_sandbox_result result;
+
+	infd=open(		"/home/odev/jug/tests/problems/twins/twins.in",O_RDWR);
+	rightfd=open(	"/home/odev/jug/tests/problems/twins/twins.out",O_RDWR);
+
+	//change the config.ini default parameters with your own stuff
+	struct run_params runp;
+	runp.mem_limit_mb=-1;//1220000;
+	runp.time_limit_ms=-1;//1000;
+	runp.fd_datasource=infd;
+	runp.compare_output=compare_output;
+	runp.fd_output_ref=rightfd;
+
+	//args
+	ret=jug_sandbox_run_tpl(&runp,psandbox,argv[0],argv,thread_order);
+
+	close(infd);
+	close(rightfd);
+
+	return ret;
+}
 /*
  *
  * Work()
@@ -50,43 +87,14 @@ void __atfork(){
 
 void *work(void* arg)
 {
-	const char* color_red="\033[0m";
-	fprintf(stderr,"%s",color_red);
+	struct worker_arg* wa=(struct worker_arg*)arg;
 	char** args=(char**)malloc(3*sizeof(char**));
 	args[0]=(char*)malloc(99);
-	strcpy(args[0],arg);
+	strcpy(args[0],wa->prog);
 	args[1]=NULL;
 
-	int ret;
-	struct sandbox sb;
-	ret=jug_sandbox_init(&sb);
-	if(ret){
-		printf("[test] cannot init sandbox : %d\n",ret);
-		return NULL;
-	}
 
-	//	int outfd=open("/tmp/dup.data",O_CREAT| O_TRUNC | O_WRONLY,S_IWUSR|S_IRUSR|S_IRGRP|S_IROTH);
-	int infd=open("/home/odev/jug/tests/problems/twins/twins.in",O_RDWR);
-	int rightfd=open("/home/odev/jug/tests/problems/twins/twins.out",O_RDWR);
-	jug_sandbox_result result;
-	//change the config.ini default parameters with your own stuff
-	struct run_params runp;
-
-	runp.mem_limit_mb=-1;//1220000;
-	runp.time_limit_ms=-1;//1000;
-	runp.fd_datasource=infd;
-	runp.fd_datasource_dir=0;
-	runp.compare_output=compare_output;
-	runp.fd_output_ref=rightfd;
-
-	jug_sandbox_run(&runp,&sb,args[0],args);
-
-	result=runp.result;
-	debugt("[[Thread]]","Executer result is : %s",jug_sandbox_result_str(result));
-
-
-	close(infd);
-	close(rightfd);
+	launch(&sb,args,wa->thread_order);
 	//pthread_detach(pthread_self());
 	return NULL;
 }
@@ -96,55 +104,75 @@ void *work(void* arg)
  * main()
  *
  */
+
 int main(void)
 {
+	int ret;
+
 	//init debugging params
-//	char* tags[6]={"Binary",NULL};
-//	debug_focus(tags);
-//	debug_focus(NULL);
+	char* tags[6]={"Binary",NULL};
+	debug_focus(tags);
+	//	debug_focus(NULL);
+	//init sandbox (should be first)
+
+	ret=jug_sandbox_init(&sb);
+	if(ret){
+		printf("[test] cannot init sandbox : %d\n",ret);
+		return 56;
+	}
+	//init template
+	ret=jug_sandbox_template_init();
+	if(ret!=0){
+		printf("error init template\n");
+		return 5;
+	}
+	sleep(2);
 
 	//threading
 	int i,nt=2,error;
-	char sr0[500],sr1[500];
+
 	char* prog1=(char*)malloc(80);
-	char* prog2=(char*)malloc(80);
 	strcpy(prog1,"/opt/twins");
-	strcpy(prog2,"/opt/twins");
-
-//	error=pthread_atfork(NULL,NULL,__atfork);
-//	if(error){
-//		perror("pthread_atfork()\n");
-//	}
-
-	error=pthread_create(&threads[0],NULL,work,prog1);
+	struct worker_arg* wa0=(struct worker_arg*)malloc(sizeof(struct worker_arg));
+	wa0->prog=prog1;
+	wa0->thread_order=0;
+	/////////////////////////////////////////
+	error=pthread_create(&threads[0],NULL,work,wa0);
 	if(error){
 		perror("pthread_create()\n");
 	}
 	sleep(0.2);
-
-	error=pthread_create(&threads[1],NULL,work,prog2);
+	////////////////////////////////////////////
+	struct worker_arg* wa1=(struct worker_arg*)malloc(sizeof(struct worker_arg));
+	wa1->prog=prog1;
+	wa1->thread_order=1;
+	error=pthread_create(&threads[0],NULL,work,wa1);
 	if(error){
 		perror("pthread_create()\n");
 	}
-	sleep(0.2);
-
-	error=pthread_create(&threads[2],NULL,work,prog2);
+	////////////////////////////////////////////
+	struct worker_arg* wa2=(struct worker_arg*)malloc(sizeof(struct worker_arg));
+	wa2->prog=prog1;
+	wa2->thread_order=2;
+	error=pthread_create(&threads[0],NULL,work,wa2);
 	if(error){
 		perror("pthread_create()\n");
 	}
-	sleep(0.2);
-
-	error=pthread_create(&threads[3],NULL,work,prog2);
+	////////////////////////////////////////////
+	struct worker_arg* wa3=(struct worker_arg*)malloc(sizeof(struct worker_arg));
+	wa3->prog=prog1;
+	wa3->thread_order=3;
+	error=pthread_create(&threads[0],NULL,work,wa3);
 	if(error){
 		perror("pthread_create()\n");
 	}
 
-//	int t=0;
-//	for(t=0;i<4;t++)
-//		pthread_join(threads[i],NULL);
+	pthread_join(threads[0],NULL);
+	pthread_join(threads[1],NULL);
+	pthread_join(threads[2],NULL);
+	pthread_join(threads[3],NULL);
 
-
-	printf("End Thread Experiment\n");
+	jug_sandbox_template_term();
 
 	sleep(2);
 	exit(EXIT_SUCCESS);

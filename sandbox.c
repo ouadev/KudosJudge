@@ -2,6 +2,8 @@
 
 /*
  *
+ *
+//TODO: make compare.c thread-aware
 //TODO: remember to add file size rlimit : RLIMIT_FSIZE
 //TODO: remember to close file descriptors before execing.
 //TODO:	make the whole stuff thread-safe.
@@ -11,8 +13,8 @@
 //TODO: think about using mount namespaces instead of chroot.
 //TODO: Compiling layer
 //TODO:	Interpreters limits (java, python,...)
-
-
+ *
+ *
 @note:	/var/tmp is a directory used to save old files after reboot. obviously we don't need it to run a
 		submission, so instead of removing it, which could affects the job of some interpreters, we mounted
 		the directory /tmp over it. By doing so the content of /var/tmp (==/tmp) will be cleared after exiting.
@@ -270,7 +272,7 @@ int jug_sandbox_run(
 
 	close(run_params_struct->out_pipe[0]);
 	close(run_params_struct->out_pipe[1]);
-	free(ccp->sandbox_struct->chroot_dir);
+	//free(ccp->sandbox_struct->chroot_dir);
 	free(ccp);
 	free(stack);
 
@@ -288,6 +290,7 @@ int jug_sandbox_run_tpl(
 		char*argv[],
 		int thread_order){
 	//locals
+	int i,fail,fd_datasource_flags,fd_datasource_status;
 	int watcher_pid;
 	int received_bytes=0;
 	//some checking
@@ -304,7 +307,32 @@ int jug_sandbox_run_tpl(
 			run_params_struct->mem_limit_mb);
 
 	//check fd_in a fd_out
-	//TODO: integrate io_pipes pool
+	//ps: fd_datasource is a fd to read from, it will be transmitted to Clone by pipe.
+	run_params_struct->fd_datasource_dir=0;
+	if( (fd_datasource_flags=fcntl(run_params_struct->fd_datasource,F_GETFD) )<0 ){
+		debugt("jug_sandbox_run_tpl","fd_datasource is not valid");
+		return -4;
+	}
+	if((fd_datasource_flags&FD_CLOEXEC) ){
+		debugt("jug_sandbox_run_tpl","fd_datasource is declared close-on-exec");
+		return -5;
+	}
+	fd_datasource_status=fcntl(run_params_struct->fd_datasource,F_GETFL);
+
+	if( ! (fd_datasource_status&O_RDWR)){//imported from jug_sandbox_run()
+		if(  !(fd_datasource_status&O_RDONLY) ){
+			debugt("jug_sandbox_run_tpl","fd_datasource dir 0 is not readible , (%d,%d)",
+					fd_datasource_status&O_RDWR,fd_datasource_status&O_RDONLY);
+			return -6;
+		}
+
+	}
+
+	////use thread_order to route the submission to the appropriate file descriptor
+	for(i=0;i<2;i++){
+		run_params_struct->out_pipe[i]=io_pipes_out[thread_order][i];
+		run_params_struct->in_pipe[i]=io_pipes_in[thread_order][i];
+	}
 
 	/* receive output at out_pipe[0], */
 	//init the execution state, not started yet.
@@ -315,21 +343,193 @@ int jug_sandbox_run_tpl(
 	ccp->sandbox_struct=sandbox_struct;
 	ccp->binary_path=binary_path;
 	ccp->argv=argv;
-
 	//serialize
 	void* serial;
 	int serial_len=jug_sandbox_template_serialize(&serial,ccp);
-
-
+	//clone request
 	watcher_pid=jug_sandbox_template_clone(serial,serial_len);
-	free(ccp);
+	run_params_struct->watcher_pid=watcher_pid;
+	//free memory
+	free(serial);
 	if(watcher_pid==-1){
 		debugt("jug_sandbox_run_tpl","cannot clone() the template");
 		return -2;
 	}
 
-	//set the global inner watcher process id
-	run_params_struct->watcher_pid=watcher_pid;
+
+
+	/*
+	 *
+	 * read the output from the submission (Jug_sandbox_run_tpl)
+	 *
+	 */
+
+	pid_t wpid;
+	int count=0,endoffile=0,compout_detected=0,iw_status,nequal,spawn_succeeded=1;
+	int watcher_alive=1,were_done=0,flags;;
+	char buffer[256];
+	short cnfg_kill_on_compout=sandbox_struct->kill_on_compout;
+	int _datasource_transfer_size=40000; //40K, actually up to 64K is possible (linux's pipe buffer size).
+	int ds_sent=0;
+	jug_sandbox_result watcher_result,comp_result,result;
+	//unblock read from the out_pipe
+	flags=fcntl(run_params_struct->out_pipe[0],F_GETFL,0);
+	fcntl(run_params_struct->out_pipe[0],F_SETFL,flags|O_NONBLOCK);
+	//ublock read from the datasource fd
+	flags=fcntl(run_params_struct->fd_datasource,F_GETFL,0);
+	fcntl(run_params_struct->fd_datasource,F_SETFL,flags|O_NONBLOCK);
+	//ublock write
+	flags=fcntl(run_params_struct->in_pipe[PIPE_WRITETO],F_GETFL,0);
+	fcntl(run_params_struct->in_pipe[PIPE_WRITETO],F_SETFL,flags|O_NONBLOCK);
+
+	while(!were_done){
+		//pull watcher state
+		if(watcher_alive){
+			wpid=waitpid(watcher_pid,&iw_status,WNOHANG);
+			if(wpid<0){
+				debugt("run_tpl","error waiting for the inner watcher");
+				watcher_alive=0;
+			}else if(wpid>0){
+				if(WIFEXITED(iw_status)){
+					//normal exit (voluntary exit)
+					//I use the range (-127,127) to express my exit codes, so that I could
+					// transmit information about errors.
+					char exit_code=WEXITSTATUS(iw_status);
+					if(exit_code<0)
+						spawn_succeeded=0;
+					else{
+						watcher_result=(jug_sandbox_result)exit_code;
+					}
+					debugt("run_tpl","watcher exited normally, exit code : %d",exit_code);
+					watcher_alive=0;
+
+
+				}else if(WIFSIGNALED(iw_status)){
+					//killed by a signal
+					debugt("run_tpl","watcher killed by a signal, signal: %d",WTERMSIG(iw_status));
+					watcher_result=JS_UNKNOWN;
+					watcher_alive=0;
+				}else{
+					debugt("run_tpl","unhandled event from the watcher");
+					watcher_result=JS_UNKNOWN;
+					watcher_alive=0;
+				}
+			}
+		}
+		//process's available output from the watcher.
+		if(endoffile || compout_detected){
+			if(!watcher_alive)
+				break;
+			else
+				continue;
+		}
+		//write to the watcher (template clone)
+		//NOTE:think about jumping over this call if we eat up all the fd_datasource.
+		ds_sent=sendfile(
+				run_params_struct->in_pipe[PIPE_WRITETO],
+				run_params_struct->fd_datasource,
+				NULL,_datasource_transfer_size
+		);
+
+		//if error writing: same bahaviour as False Comparing
+		if(ds_sent<0 && ds_sent!=EAGAIN){
+			debugt("run_tpl","senfile() error : %s",strerror(errno));
+			comp_result=JS_PIPE_ERROR;
+			compout_detected=1;
+			//send SIGUSR1
+			if(cnfg_kill_on_compout)
+				kill(watcher_pid,SIGUSR1);
+		}
+		//use simultaneous read
+		//ps:ublocking read
+		count=read(run_params_struct->out_pipe[PIPE_READFROM],buffer,255);
+		if(ccp->sandbox_struct->show_submission_output && count!=-1 )
+			write(STDOUT_FILENO,buffer,count);
+		if(count>0){ //some bytes are read
+			nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,0);
+			if(nequal==0)		comp_result=JS_CORRECT;
+			else if(nequal>0)	comp_result=JS_WRONG;
+			else				comp_result=JS_COMP_ERROR;
+			//if an inequality is reported by the comparing function, and simultaneous mode is on, kill.
+			if(nequal != 0){
+				compout_detected=1;
+				//communicate with the child via SIGUSR1 signal to inform them we detected false output
+				if(cnfg_kill_on_compout)
+					kill(watcher_pid,SIGUSR1);
+			}
+			//detect too much of output (not test feature)
+			//SIGUSR1 handler will kill the binary and make sure the watcher reports a good execution
+			// with exit(JS_CORRECT). to report the output overflow to sandbox user, we will change the
+			// value of comp_result flag to JS_OUTPUTLIMIT
+			received_bytes+=count;
+			if( (received_bytes/1000000)> ccp->sandbox_struct->output_size_limit_mb_default){
+				debugt("watcher","too much generated output");
+				kill(watcher_pid,SIGUSR1);
+				comp_result=JS_OUTPUTLIMIT;
+			}
+		}
+		else if(count==0){//end of file received
+			endoffile=1;
+			nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,1);
+			if(nequal==0)			comp_result=JS_CORRECT;
+			else if(nequal>0)		comp_result=JS_WRONG;
+			else					comp_result=JS_COMP_ERROR;
+		}else if(count<0){
+			if(errno==EAGAIN){
+				if(	!watcher_alive ){
+					//actually in case the submission is killed or suicide, we won't need to compare at all, but let's do it.
+					//last call to compare_output
+					nequal=run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,1);
+					if(nequal==0)			comp_result=JS_CORRECT;
+					else if(nequal>0)		comp_result=JS_WRONG;
+					else					comp_result=JS_COMP_ERROR;
+					//we're done then
+					were_done=1;
+				}
+				continue;
+			}else{
+				comp_result=JS_PIPE_ERROR;
+				compout_detected=1;
+				//send SIGUSR1
+				if(cnfg_kill_on_compout)
+					kill(watcher_pid,SIGUSR1);
+			}
+		}
+	}
+
+	//end while (we're done)
+	//fflush(stderr);
+	//fflush(stdout);
+	if(spawn_succeeded){
+		if(watcher_result==JS_CORRECT){
+			result=comp_result;
+		}
+		else result=watcher_result;
+		debugt("run_tpl","Watcher result : %s",jug_sandbox_result_str(watcher_result));
+		debugt("run_tpl","Judging result : %s",jug_sandbox_result_str(result));
+	}
+
+	else
+		debugt("rnu_tpl","spawning failed before execvp()");
+
+	//result
+	run_params_struct->result=result;
+
+	/*
+	 * Close all opened file descriptors
+	 * Free All Malloced memory areas
+	 */
+
+	close(run_params_struct->out_pipe[0]);
+	close(run_params_struct->out_pipe[1]);
+	//free(ccp->sandbox_struct->chroot_dir);
+	free(ccp);
+	//free(stack);
+
+
+	return 0;
+
+
 
 
 }
@@ -362,7 +562,7 @@ int jug_sandbox_child(void* arg){
 	char wd[100];
 	fail=chdir(ccp->sandbox_struct->chroot_dir);
 	if(fail){
-		debugt("jug_sandbox_child","chdir() failed");
+		debugt("jug_sandbox_child","chdir() failed, dir:%s",ccp->sandbox_struct->chroot_dir);
 		exit(-2);
 	}
 
@@ -823,23 +1023,25 @@ int jug_sandbox_template_init(){
 //jug_sandbox_template (\\[template_process])
 //
 int jug_sandbox_template(void*arg){
+	signal(SIGUSR1,jug_sandbox_template_sighandler);
 	close(template_pipe_rx[PIPE_READFROM]);
 	close(template_pipe_tx[PIPE_WRITETO]);
-	signal(SIGUSR1,jug_sandbox_template_sighandler);
-	while(1) sleep(20);
+
+	while(1){
+		sleep(1);
+		debugt("template","UP");
+	}
 	return 0;
 }
 
 //jug_sandbox_child_empty
-int jug_sandbox_child_empty(void* arg){
-	debugt("js_child_empty","o");
-
+int jug_sandbox_child_tpl(void* arg){
+	int fail=0;
+	//
+	debugt("watcher_tpl","Starting...");
 	struct clone_child_params* ccp=(struct clone_child_params*)arg;
 
-	debugt("child_empty","binary_path=%s",ccp->binary_path);
-
-	fflush(stdout);
-	return 31;
+	return (int)JS_CORRECT;
 }
 
 // jug_sandbox_template_sighandler (\\[template_process:sighandler])
@@ -859,11 +1061,10 @@ void jug_sandbox_template_sighandler(int sig){
 		write(template_pipe_rx[PIPE_WRITETO],pipe_buf,strlen(pipe_buf)+1);
 		return ;
 	}
+
 	//unserialize
-	struct clone_child_params* ccp=jug_sandbox_template_unserialize(pipe_buf);
+	struct clone_child_params* ccp=jug_sandbox_template_unserialize(tx_buf);
 
-
-	return;
 	//clone preparation
 	char* cloned_stack;
 	char *cloned_stacktop;
@@ -877,8 +1078,8 @@ void jug_sandbox_template_sighandler(int sig){
 	}
 	cloned_stacktop=cloned_stack;
 	cloned_stacktop+=STACK_SIZE;
-
-	cloned_pid=clone(jug_sandbox_child_empty,cloned_stacktop,CLONE_PARENT|SIGCHLD,(void*)ccp);
+	int JUG_CLONE_SANDBOX=CLONE_NEWUTS|CLONE_NEWNET|CLONE_NEWPID|CLONE_NEWNS;
+	cloned_pid=clone(jug_sandbox_child,cloned_stacktop,JUG_CLONE_SANDBOX|CLONE_PARENT|SIGCHLD,(void*)ccp);
 	if(cloned_pid==-1){
 		debugt("js_tpl_sighandler","cannot clone: %s",strerror(errno));
 		sprintf(pipe_buf,"%d",-2);
@@ -897,7 +1098,6 @@ void jug_sandbox_template_sighandler(int sig){
 
 // jug_sandbox_template_clone (\\[main_process/some_thread])
 pid_t jug_sandbox_template_clone(void*arg, int len){
-	//
 	if(template_pid<0){
 		debugt("js_template_clone","template_pid<0");
 		return (pid_t)-1;
@@ -908,6 +1108,7 @@ pid_t jug_sandbox_template_clone(void*arg, int len){
 	struct timeval pipe_read_timeout;
 	fd_set _set;
 	int slct;
+	pid_t pid;
 	//
 	pipe_read_timeout.tv_sec=2;
 	pipe_read_timeout.tv_usec=0;
@@ -921,9 +1122,11 @@ pid_t jug_sandbox_template_clone(void*arg, int len){
 		pthread_mutex_unlock(&template_pipe_mutex);
 		return (pid_t)-1;
 	}
+	//write the file-descriptor
+
 	//write void*arg
 	wr=write(template_pipe_tx[PIPE_WRITETO],arg,len);
-	debugt("js_template_clone","void*arg written,len=%d,wr=%d",len,wr);
+	//debugt("js_template_clone","void*arg written,len=%d,wr=%d",len,wr);
 	//read my data
 	slct=select(template_pipe_rx[PIPE_READFROM]+1,&_set,NULL,NULL,&pipe_read_timeout);
 	if(slct>0){
@@ -942,6 +1145,7 @@ pid_t jug_sandbox_template_clone(void*arg, int len){
 		return -1;
 	}else if(is_read==0){
 		debugt("js_template_clone","nothing read from template_pipe");
+
 		return -1;
 	}else{
 		return (pid_t)atoi(pipe_buf);
@@ -955,6 +1159,7 @@ void jug_sandbox_template_term() {
 	kill(template_pid,SIGKILL);
 	template_pid=-1;
 }
+
 //jug_sandbox_template_serialize
 int jug_sandbox_template_serialize(
 		void** p_serial,
@@ -1009,20 +1214,17 @@ struct clone_child_params* jug_sandbox_template_unserialize(void*serial){
 	//run_params|sandbox|char[]binary_path|argc|argv[0]|argv[1]|....|'\0'
 	int index,i,argc;
 	struct clone_child_params* ccp;
-
 	ccp=(struct clone_child_params*)malloc(sizeof(struct clone_child_params));
+
+
+
 	index=0;
 	//run_params
 	ccp->run_params_struct=(struct run_params*)malloc(sizeof(struct run_params));
 	memcpy(ccp->run_params_struct,serial+index,sizeof(struct run_params));
 	index+=sizeof(struct run_params);
 
-	debugt("serial","mem_limit_mb:%d",ccp->run_params_struct->mem_limit_mb);
-	/****
-	 *
-	 * //TODO:debug unserialize
-	 *
-	 */
+
 
 	//sandbox
 	ccp->sandbox_struct=(struct sandbox*)malloc(sizeof(struct sandbox));
@@ -1052,16 +1254,17 @@ struct clone_child_params* jug_sandbox_template_unserialize(void*serial){
 }
 
 
-//free clone_child_params
+//free clone_child_params //[template_process]
 void jug_sandbox_template_freeccp(struct clone_child_params* ccp){
 	free(ccp->run_params_struct);
 	free(ccp->sandbox_struct);
 	free(ccp->binary_path);
-	int i=0;
-	while(ccp->argv[i]!=NULL) free(ccp->argv[i]);
+	int i=-1;
+	while(ccp->argv[++i]!=NULL) free(ccp->argv[i]);
 	free(ccp->argv);
 	free(ccp);
 }
+
 
 //jug_sandbox_create_cgroup
 //private
@@ -1224,15 +1427,6 @@ void watcher_sig_handler(int sig){
 		binary_state=JS_BIN_COMPOUT;
 	}
 }
-
-
-
-
-
-
-
-
-
 
 
 

@@ -6,6 +6,7 @@ int compare_output(int fd_out_ref,char* rx,int size,int end){
 	int d=0,i,j,rd=0,rd2=0,read_plus=0,goback=0,dec=0;
 	char* tmprx=rx;
 	char bufftest[1];
+
 	//checking
 	if(!fd_out_ref_checked){
 		fd_out_ref_checked=1;
