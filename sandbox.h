@@ -121,6 +121,7 @@ struct run_params{
 	int out_pipe[2];///< the output pipe to the judge daemon. where the submission prints.
 	int in_pipe[2]; ///< the input pipe, which we use to feed the submission with data
 	int received_bytes; //< the count of received bytes from the executing binary.
+	int thread_order;  //< thread identifier, used to give the watcher a hint about the thread that is running it.
 
 	//the result of Execution
 	jug_sandbox_result result;		//<  where we should put the result of the execution
@@ -159,8 +160,8 @@ int template_pipe_tx[2];
 ///< a mutex to use for concurrent access to the template process's pipe;
 pthread_mutex_t template_pipe_mutex;
 ///< pool of pipes, each calling thread uses one. the same meaning as normal mode
-int io_pipes_out[THREADS_MAX][2];
-int io_pipes_in [THREADS_MAX][2];
+int io_pipes_out[THREADS_MAX][2];  //retreive from the submission
+int io_pipes_in [THREADS_MAX][2]; //feed the submission
 
 /**
  * @desc	init the sandbox. By design this function should be called once.

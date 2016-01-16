@@ -32,18 +32,19 @@
  */
 
 int fd_out_ref_checked; 	//< wether we already checked the validity of fd_out_ref
-char buffer[READ_SIZE];		//< a buffer
+
 
 /**
  * @desc receive
  * @param rx a chunk of data, supposedly received from the submission.
  * @param size the size of rx
- * @param end boolean value indicates if the submission is done producing output
+ * @param stage boolean value indicates if the submission is done producing output
+ * 		  -1:last call,0:first call, else: intermediate calls
  * @return returns 0 if output is equal,
  * @note in the last call to compare_output (end==1), there will be no comparing done. rx may be NULL
  */
 
-int compare_output(int fd_out_ref,char* rx,int size,int end);
+int compare_output(int fd_out_ref,char* rx,int size,int stage);
 
 
 

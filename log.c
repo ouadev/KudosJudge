@@ -66,6 +66,7 @@ void debugt(char*tag,char*message,...){
 	//
 
 	fprintf(stderr, "+ %s: %s\n",tag,dbg_msg);
+	fflush(stderr);
 }
 
 

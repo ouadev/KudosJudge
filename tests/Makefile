@@ -1,4 +1,20 @@
+#
+# force building the judge before doing any lab related stuff
+#
+BUILD_JUDGE:FORCE_MAKE_PROJECT_CODE
+	cd .. && make -f Makefile
+FORCE_MAKE_PROJECT_CODE:
 
+
+
+#test-sandbox-tpl
+test_sandbox_tpl:BUILD_JUDGE test_sandbox_tpl.o
+	gcc test_sandbox_tpl.o ../iniparser/iniparser.o ../config.o ../log.o ../sandbox.o ../compare.o \
+	-o test_sandbox_tpl -lcgroup -lpthread
+	cd .. && make -f Makefile
+
+test_sandbox_tpl.o: test_sandbox_tpl.c
+	gcc -c test_sandbox_tpl.c -o test_sandbox_tpl.o -lpthread
 
 #test-sandbox
 test_sandbox: test_sandbox.o  ../iniparser/iniparser.o ../config.o ../log.o ../sandbox.o ../compare.o

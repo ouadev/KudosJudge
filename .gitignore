@@ -1,3 +1,7 @@
 *.o
 .*
-
+lab/runner_php
+lab/launcher
+lab/malware
+lab/thread
+tests/test_sandbox_tpl

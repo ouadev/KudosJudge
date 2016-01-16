@@ -2,14 +2,15 @@
 
 
 //compare()
-int compare_output(int fd_out_ref,char* rx,int size,int end){
+int compare_output(int fd_out_ref,char* rx,int size,int stage){
+	/////////
 	int d=0,i,j,rd=0,rd2=0,read_plus=0,goback=0,dec=0;
 	char* tmprx=rx;
 	char bufftest[1];
+	char buffer[READ_SIZE];		//< a buffer
 
-	//checking
-	if(!fd_out_ref_checked){
-		fd_out_ref_checked=1;
+	//checking, only during the first call
+	if(stage==0){
 		int fd_flags=fcntl(fd_out_ref,F_GETFD);
 		if(fd_flags < 0){
 			debugt("compare_output","the fd_out_ref in invalid");
@@ -22,8 +23,9 @@ int compare_output(int fd_out_ref,char* rx,int size,int end){
 		}
 	}
 
+
 	//end call: check if there still be data in reference output
-	if(end==1){
+	if(stage==-1){
 		while(1){
 			rd=read(fd_out_ref,buffer,READ_SIZE);
 			if(rd==0)	return 0;

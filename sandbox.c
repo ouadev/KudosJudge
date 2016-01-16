@@ -3,10 +3,8 @@
 /*
  *
  *
-//TODO: make compare.c thread-aware
 //TODO: remember to add file size rlimit : RLIMIT_FSIZE
 //TODO: remember to close file descriptors before execing.
-//TODO:	make the whole stuff thread-safe.
 //TODO: remember to check the health of the rootfs before begining.
  *
  *
@@ -43,6 +41,7 @@ int jug_sandbox_run(
 	//locals
 	int watcher_pid;
 	int received_bytes=0;
+	int compare_stage=0;
 	//some checking
 	//if the caller didn't want to specify some limits, replace them with the Config's defaults.
 	if(run_params_struct->mem_limit_mb<0)
@@ -193,10 +192,11 @@ int jug_sandbox_run(
 		if(ccp->sandbox_struct->show_submission_output && count!=-1 )
 			write(STDOUT_FILENO,buffer,count);
 		if(count>0){ //some bytes are read
-			nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,0);
+			nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,compare_stage);
 			if(nequal==0)		comp_result=JS_CORRECT;
 			else if(nequal>0)	comp_result=JS_WRONG;
 			else				comp_result=JS_COMP_ERROR;
+			compare_stage++;
 			//if an inequality is reported by the comparing function, and simultaneous mode is on, kill.
 			if(nequal != 0){
 				compout_detected=1;
@@ -218,7 +218,7 @@ int jug_sandbox_run(
 		}
 		else if(count==0){//end of file received
 			endoffile=1;
-			nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,1);
+			nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,-1);
 			if(nequal==0)			comp_result=JS_CORRECT;
 			else if(nequal>0)		comp_result=JS_WRONG;
 			else					comp_result=JS_COMP_ERROR;
@@ -227,7 +227,7 @@ int jug_sandbox_run(
 				if(	!watcher_alive ){
 					//actually in case the submission is killed or suicide, we won't need to compare at all, but let's do it.
 					//last call to compare_output
-					nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,1);
+					nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,-1);
 					if(nequal==0)			comp_result=JS_CORRECT;
 					else if(nequal>0)		comp_result=JS_WRONG;
 					else					comp_result=JS_COMP_ERROR;
@@ -283,6 +283,7 @@ int jug_sandbox_run(
 /**
  * run in template mode
  */
+// [main_processus/some_thread]
 int jug_sandbox_run_tpl(
 		struct run_params* run_params_struct,
 		struct sandbox* sandbox_struct,
@@ -293,6 +294,7 @@ int jug_sandbox_run_tpl(
 	int i,fail,fd_datasource_flags,fd_datasource_status;
 	int watcher_pid;
 	int received_bytes=0;
+	int compare_stage=0;
 	//some checking
 	//if the caller didn't want to specify some limits, replace them with the Config's defaults.
 	if(run_params_struct->mem_limit_mb<0)
@@ -308,27 +310,29 @@ int jug_sandbox_run_tpl(
 
 	//check fd_in a fd_out
 	//ps: fd_datasource is a fd to read from, it will be transmitted to Clone by pipe.
-	run_params_struct->fd_datasource_dir=0;
-	if( (fd_datasource_flags=fcntl(run_params_struct->fd_datasource,F_GETFD) )<0 ){
-		debugt("jug_sandbox_run_tpl","fd_datasource is not valid");
-		return -4;
-	}
-	if((fd_datasource_flags&FD_CLOEXEC) ){
-		debugt("jug_sandbox_run_tpl","fd_datasource is declared close-on-exec");
-		return -5;
-	}
-	fd_datasource_status=fcntl(run_params_struct->fd_datasource,F_GETFL);
-
-	if( ! (fd_datasource_status&O_RDWR)){//imported from jug_sandbox_run()
-		if(  !(fd_datasource_status&O_RDONLY) ){
-			debugt("jug_sandbox_run_tpl","fd_datasource dir 0 is not readible , (%d,%d)",
-					fd_datasource_status&O_RDWR,fd_datasource_status&O_RDONLY);
-			return -6;
-		}
-
-	}
+	run_params_struct->fd_datasource_dir=1;
+//	if( (fd_datasource_flags=fcntl(run_params_struct->fd_datasource,F_GETFD) )<0 ){
+//		debugt("run_tpl","fd_datasource is not valid");
+//		return -4;
+//	}
+	////////
+//	if((fd_datasource_flags&FD_CLOEXEC) ){
+//		debugt("run_tpl","fd_datasource is declared close-on-exec");
+//		return -5;
+//	}
+//	fd_datasource_status=fcntl(run_params_struct->fd_datasource,F_GETFL);
+//
+//	if( ! (fd_datasource_status&O_RDWR)){//imported from jug_sandbox_run()
+//		if(  !(fd_datasource_status&O_RDONLY) ){
+//			debugt("run_tpl","fd_datasource dir 0 is not readible , (%d,%d)",
+//					fd_datasource_status&O_RDWR,fd_datasource_status&O_RDONLY);
+//			return -6;
+//		}
+//
+//	}
 
 	////use thread_order to route the submission to the appropriate file descriptor
+	//parent side of multplixing.
 	for(i=0;i<2;i++){
 		run_params_struct->out_pipe[i]=io_pipes_out[thread_order][i];
 		run_params_struct->in_pipe[i]=io_pipes_in[thread_order][i];
@@ -352,7 +356,7 @@ int jug_sandbox_run_tpl(
 	//free memory
 	free(serial);
 	if(watcher_pid==-1){
-		debugt("jug_sandbox_run_tpl","cannot clone() the template");
+		debugt("run_tpl","cannot clone() the template");
 		return -2;
 	}
 
@@ -371,6 +375,7 @@ int jug_sandbox_run_tpl(
 	short cnfg_kill_on_compout=sandbox_struct->kill_on_compout;
 	int _datasource_transfer_size=40000; //40K, actually up to 64K is possible (linux's pipe buffer size).
 	int ds_sent=0;
+	int fff=0;
 	jug_sandbox_result watcher_result,comp_result,result;
 	//unblock read from the out_pipe
 	flags=fcntl(run_params_struct->out_pipe[0],F_GETFL,0);
@@ -381,7 +386,19 @@ int jug_sandbox_run_tpl(
 	//ublock write
 	flags=fcntl(run_params_struct->in_pipe[PIPE_WRITETO],F_GETFL,0);
 	fcntl(run_params_struct->in_pipe[PIPE_WRITETO],F_SETFL,flags|O_NONBLOCK);
+	//check fds
+	flags=fcntl(run_params_struct->in_pipe[PIPE_WRITETO],F_GETFD);
+	if(flags<0){
+		debugt("run_tpl","in_pipe[PIPE_WRITETO] is invalid : %s",strerror(errno));
+		return -3;
+	}
+	flags=fcntl(run_params_struct->fd_datasource,F_GETFD);
+	if(flags<0){
+		debugt("run_tpl","fd_datasource is invalid: %s",strerror(errno));
+		return -3;
+	}
 
+	//
 	while(!were_done){
 		//pull watcher state
 		if(watcher_alive){
@@ -432,6 +449,8 @@ int jug_sandbox_run_tpl(
 		);
 
 		//if error writing: same bahaviour as False Comparing
+//		if(thread_order==1 && ds_sent>=0)
+//			debugt("run_tpl","order=%d, sendfile=%d",thread_order,ds_sent);
 		if(ds_sent<0 && ds_sent!=EAGAIN){
 			debugt("run_tpl","senfile() error : %s",strerror(errno));
 			comp_result=JS_PIPE_ERROR;
@@ -443,13 +462,20 @@ int jug_sandbox_run_tpl(
 		//use simultaneous read
 		//ps:ublocking read
 		count=read(run_params_struct->out_pipe[PIPE_READFROM],buffer,255);
+
+//		if( count>=0)
+//			debugt("run_tpl","order=%d, read count=%d",run_params_struct->thread_order,count);
+
 		if(ccp->sandbox_struct->show_submission_output && count!=-1 )
 			write(STDOUT_FILENO,buffer,count);
 		if(count>0){ //some bytes are read
-			nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,0);
+			nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,compare_stage);
 			if(nequal==0)		comp_result=JS_CORRECT;
 			else if(nequal>0)	comp_result=JS_WRONG;
 			else				comp_result=JS_COMP_ERROR;
+			compare_stage++;
+			//
+			//debugt("compare","stage=%d,nequal:%d",compare_stage,nequal);
 			//if an inequality is reported by the comparing function, and simultaneous mode is on, kill.
 			if(nequal != 0){
 				compout_detected=1;
@@ -470,21 +496,23 @@ int jug_sandbox_run_tpl(
 		}
 		else if(count==0){//end of file received
 			endoffile=1;
-			nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,1);
+			nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,-1);
 			if(nequal==0)			comp_result=JS_CORRECT;
 			else if(nequal>0)		comp_result=JS_WRONG;
 			else					comp_result=JS_COMP_ERROR;
+			//debugt("compare","stage=%d,nequal:%d",compare_stage,nequal);
 		}else if(count<0){
 			if(errno==EAGAIN){
 				if(	!watcher_alive ){
 					//actually in case the submission is killed or suicide, we won't need to compare at all, but let's do it.
 					//last call to compare_output
-					nequal=run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,1);
+					nequal=run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,-1);
 					if(nequal==0)			comp_result=JS_CORRECT;
 					else if(nequal>0)		comp_result=JS_WRONG;
 					else					comp_result=JS_COMP_ERROR;
 					//we're done then
 					were_done=1;
+					//debugt("compare","stage=%d,nequal:%d",compare_stage,nequal);
 				}
 				continue;
 			}else{
@@ -520,11 +548,8 @@ int jug_sandbox_run_tpl(
 	 * Free All Malloced memory areas
 	 */
 
-	close(run_params_struct->out_pipe[0]);
-	close(run_params_struct->out_pipe[1]);
-	//free(ccp->sandbox_struct->chroot_dir);
 	free(ccp);
-	//free(stack);
+
 
 
 	return 0;
@@ -1008,10 +1033,10 @@ int jug_sandbox_template_init(){
 		debugt("js_template_init","cannot clone() the template process : %s",strerror(errno));
 		return -2;
 	}
-	for(i=0;i<THREADS_MAX;i++){
-		close(io_pipes_in[i][PIPE_READFROM]);
-		close(io_pipes_out[i][PIPE_WRITETO]);
-	}
+//	for(i=0;i<THREADS_MAX;i++){
+//		close(io_pipes_in[i][PIPE_READFROM]);
+//		close(io_pipes_out[i][PIPE_WRITETO]);
+//	}
 	close(template_pipe_rx[PIPE_WRITETO]);
 	close(template_pipe_tx[PIPE_READFROM]);
 	free(tpl_stack);
@@ -1051,7 +1076,7 @@ void jug_sandbox_template_sighandler(int sig){
 	//
 	char pipe_buf[8];
 	pid_t cloned_pid;
-	int rd;
+	int rd,i, _thread_order;
 	unsigned char* tx_buf=(unsigned char*)malloc(TEMPLATE_MAX_TX*sizeof(unsigned char) );
 	//read void*arg from the pipe
 	rd=read(template_pipe_tx[PIPE_READFROM],tx_buf,TEMPLATE_MAX_TX);
@@ -1064,7 +1089,12 @@ void jug_sandbox_template_sighandler(int sig){
 
 	//unserialize
 	struct clone_child_params* ccp=jug_sandbox_template_unserialize(tx_buf);
-
+	//experiment: route the in/out pipes through already threading established pipes
+//	_thread_order=ccp->run_params_struct->thread_order;
+//	for(i=0;i<2;i++){
+//		ccp->run_params_struct->out_pipe[i]=io_pipes_out[_thread_order][i];
+//		ccp->run_params_struct->in_pipe[i]=io_pipes_in[_thread_order][i];
+//	}
 	//clone preparation
 	char* cloned_stack;
 	char *cloned_stacktop;
@@ -1099,7 +1129,7 @@ void jug_sandbox_template_sighandler(int sig){
 // jug_sandbox_template_clone (\\[main_process/some_thread])
 pid_t jug_sandbox_template_clone(void*arg, int len){
 	if(template_pid<0){
-		debugt("js_template_clone","template_pid<0");
+		debugt("tpl_clone","template_pid<0");
 		return (pid_t)-1;
 	}
 	//decl
@@ -1118,7 +1148,7 @@ pid_t jug_sandbox_template_clone(void*arg, int len){
 	//eat all previous data (must use select to control timeout)
 	//read(template_pipe_rx[PIPE_READFROM],pipe_buf,255);
 	if(kill(template_pid,SIGUSR1)==-1){
-		debugt("js_template_clone","cannot deliver SIGUSR1 signal");
+		debugt("tpl_clone","cannot deliver SIGUSR1 signal");
 		pthread_mutex_unlock(&template_pipe_mutex);
 		return (pid_t)-1;
 	}
@@ -1134,17 +1164,17 @@ pid_t jug_sandbox_template_clone(void*arg, int len){
 	}
 	pthread_mutex_unlock(&template_pipe_mutex);
 	if(slct<0){
-		debugt("js_template_clone","error select");
+		debugt("tpl_clone","error select");
 		return (pid_t)-1;
 	}else if(slct==0){
-		debugt("js_template_clone","timeout select, think about some sync system, to avoid reading someone else data");
+		debugt("tpl_clone","timeout select, think about some sync system, to avoid reading someone else data");
 		return (pid_t)-1;
 	}
 	if(is_read<0){
-		debugt("js_template_clone","cannot read the pid of the cloned process: %s",strerror(errno));
+		debugt("tpl_clone","cannot read the pid of the cloned process: %s",strerror(errno));
 		return -1;
 	}else if(is_read==0){
-		debugt("js_template_clone","nothing read from template_pipe");
+		debugt("tpl_clone","nothing read from template_pipe");
 
 		return -1;
 	}else{
@@ -1348,14 +1378,14 @@ unsigned long jug_sandbox_memory_usage(pid_t pid){
 	content[r]='\0';
 	sscanf(content,"%ld %ld %ld %ld %ld %ld %ld",&vmsize,&resident,&share,&text,&lib,&data,&dt);
 
-	debugt("mem_usage","content : %ld %ld %ld %ld %ld %ld %ld ",
-			vmsize*page_size,
-			resident*page_size,
-			share*page_size,
-			text*page_size,
-			lib*page_size,
-			data*page_size,
-			dt*page_size);
+//	debugt("mem_usage","content : %ld %ld %ld %ld %ld %ld %ld ",
+//			vmsize*page_size,
+//			resident*page_size,
+//			share*page_size,
+//			text*page_size,
+//			lib*page_size,
+//			data*page_size,
+//			dt*page_size);
 
 	//
 	close(procfd);

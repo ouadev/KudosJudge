@@ -1,4 +1,5 @@
 
+
 #define _GNU_SOURCE
 #include <sched.h>
 #include <unistd.h>
@@ -24,7 +25,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ptrace.h>
-
 #include "../sandbox.h"
 /**
  * defs
@@ -40,21 +40,15 @@ struct worker_arg{
 
 pthread_t threads[5];
 struct sandbox sb;
-/**
- *
- * child_atfork
- *
- */
 
-void __atfork(){
 
-}
 /*
  * launch
  */
 
 int launch(struct sandbox* psandbox,char*argv[],int thread_order){
 
+	//////////////////////////////////
 	pid_t pid,c_pid;
 	int ret,status;
 	int infd,rightfd;
@@ -70,12 +64,15 @@ int launch(struct sandbox* psandbox,char*argv[],int thread_order){
 	runp.fd_datasource=infd;
 	runp.compare_output=compare_output;
 	runp.fd_output_ref=rightfd;
+	runp.thread_order=thread_order;
+
 
 	//args
 	ret=jug_sandbox_run_tpl(&runp,psandbox,argv[0],argv,thread_order);
 
 	close(infd);
 	close(rightfd);
+	debugt("thread","launch: order=%d, ret=%d",thread_order,ret);
 
 	return ret;
 }
@@ -87,13 +84,14 @@ int launch(struct sandbox* psandbox,char*argv[],int thread_order){
 
 void *work(void* arg)
 {
+
 	struct worker_arg* wa=(struct worker_arg*)arg;
+
 	char** args=(char**)malloc(3*sizeof(char**));
 	args[0]=(char*)malloc(99);
 	strcpy(args[0],wa->prog);
 	args[1]=NULL;
-
-
+	//////////////////////////////
 	launch(&sb,args,wa->thread_order);
 	//pthread_detach(pthread_self());
 	return NULL;
@@ -110,7 +108,7 @@ int main(void)
 	int ret;
 
 	//init debugging params
-	char* tags[6]={"Binary",NULL};
+	char* tags[6]={"thread","run_tpl","tpl_clone",NULL};
 	debug_focus(tags);
 	//	debug_focus(NULL);
 	//init sandbox (should be first)
@@ -126,13 +124,17 @@ int main(void)
 		printf("error init template\n");
 		return 5;
 	}
-	sleep(2);
+
+	sleep(1.5);
 
 	//threading
 	int i,nt=2,error;
 
 	char* prog1=(char*)malloc(80);
-	strcpy(prog1,"/opt/twins");
+	strcpy(prog1,"/bin/ls");
+	char* prog2=(char*)malloc(80);
+	strcpy(prog2,"/opt/twins");
+
 	struct worker_arg* wa0=(struct worker_arg*)malloc(sizeof(struct worker_arg));
 	wa0->prog=prog1;
 	wa0->thread_order=0;
@@ -141,31 +143,33 @@ int main(void)
 	if(error){
 		perror("pthread_create()\n");
 	}
-	sleep(0.2);
+
 	////////////////////////////////////////////
 	struct worker_arg* wa1=(struct worker_arg*)malloc(sizeof(struct worker_arg));
 	wa1->prog=prog1;
 	wa1->thread_order=1;
-	error=pthread_create(&threads[0],NULL,work,wa1);
+	error=pthread_create(&threads[1],NULL,work,wa1);
 	if(error){
 		perror("pthread_create()\n");
 	}
-	////////////////////////////////////////////
+
+//	////////////////////////////////////////////
 	struct worker_arg* wa2=(struct worker_arg*)malloc(sizeof(struct worker_arg));
-	wa2->prog=prog1;
+	wa2->prog=prog2;
 	wa2->thread_order=2;
-	error=pthread_create(&threads[0],NULL,work,wa2);
+	error=pthread_create(&threads[2],NULL,work,wa2);
 	if(error){
 		perror("pthread_create()\n");
 	}
 	////////////////////////////////////////////
 	struct worker_arg* wa3=(struct worker_arg*)malloc(sizeof(struct worker_arg));
-	wa3->prog=prog1;
+	wa3->prog=prog2;
 	wa3->thread_order=3;
-	error=pthread_create(&threads[0],NULL,work,wa3);
+	error=pthread_create(&threads[3],NULL,work,wa3);
 	if(error){
 		perror("pthread_create()\n");
 	}
+
 
 	pthread_join(threads[0],NULL);
 	pthread_join(threads[1],NULL);
@@ -174,7 +178,9 @@ int main(void)
 
 	jug_sandbox_template_term();
 
-	sleep(2);
+	sleep(1); //to let the libc fflush the last stuff.
+	debugt("thread",":::end:::");
+
 	exit(EXIT_SUCCESS);
 }
 

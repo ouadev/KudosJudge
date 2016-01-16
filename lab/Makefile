@@ -30,12 +30,7 @@ launcher: BUILD_JUDGE launcher.o
 	
 launcher.o: launcher.c
 	gcc -c launcher.c -o launcher.o 
-#thread
-thread: BUILD_JUDGE thread.o 
-	gcc thread.o ../iniparser/iniparser.o ../config.o ../log.o ../sandbox.o ../compare.o ../ramfs.o \
-	-o thread -lcgroup -lpthread
-thread.o:thread.c
-	gcc -c thread.c -o thread.o -lpthread
+
 	
 #signal
 signal: BUILD_JUDGE signal.c
