@@ -2,7 +2,12 @@
 
 /*
  *
- *
+//TODO: create the full file tree with : interface.h, protocol.h, queue.h, ...
+ * and a main.c that daemonize the judge, add restart.sh script to relaunch the judge to ease
+ * the debugging loop. add a client that send simple data to the daemon, in order to simplify the task for Bq.
+//TODO: configure a mode where the judge doesn't need the ERFS to work,
+ * in order to let other developers test their parts without caring about the ERFS.
+//TODO: edit signal mask in the watcher process to ignore unused signals
 //TODO: remember to add file size rlimit : RLIMIT_FSIZE
 //TODO: remember to close file descriptors before execing.
 //TODO: remember to check the health of the rootfs before begining.

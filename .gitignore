@@ -5,3 +5,5 @@ lab/launcher
 lab/malware
 lab/thread
 tests/test_sandbox_tpl
+bin/kudosd
+bin/client
