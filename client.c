@@ -10,6 +10,8 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
+#include "interface.h"
+
 int main(int argc , char *argv[])
 {
 	int sock;
@@ -20,10 +22,10 @@ int main(int argc , char *argv[])
 	sock = socket(AF_INET , SOCK_STREAM , 0);
 	if (sock == -1)
 	{
-		printf("Could not create socket\n");
+		printf("KudosClient: Could not create socket\n");
 		exit(5);
 	}
-	puts("Socket created");
+	puts("KudosClient: Socket created");
 
 	server.sin_addr.s_addr = inet_addr("127.0.0.1");
 	server.sin_family = AF_INET;
@@ -32,36 +34,46 @@ int main(int argc , char *argv[])
 	//Connect to remote server
 	if (connect(sock , (struct sockaddr *)&server , sizeof(server)) < 0)
 	{
-		perror("connect failed. Error");
+		perror("KudosClient: connect failed. Error");
 		return 1;
 	}
 
-	puts("Connected\n");
+	puts("KudosClient: Connected\n");
 
 	//keep communicating with server
 	int rcv_count=0;
-	while(1)
-	{
-		printf("Enter message : ");
-		scanf("%s" , message);
-		printf("my message : %s, strlen=%d\n",message,strlen(message));
-		//Send some data
-		if( send(sock , message , strlen(message) , 0) < 0)
-		{
-			puts("Send failed");
-			return 1;
-		}
+	int_request request;
+	int_response response;
+	//one time request
+	//printf("KudosClient: enter path to execute : ");
+	//scanf("%s" , request.path);
+	strcpy(request.path,"/bin/ls");
+	strcpy(request.echo, request.path);
+	strcpy(request.tc_in_path,"/home/odev/jug/tests/problems/twins/twins.in");
+	strcpy(request.tc_out_path,"/home/odev/jug/tests/problems/twins/twins.out");
 
-		//Receive a reply from the server
-		if( (rcv_count=recv(sock , server_reply , 2000 , 0)) < 0)
-		{
-			puts("recv failed");
-			break;
-		}
-		server_reply[rcv_count]='\0';
-		printf("Server reply : %d\n",rcv_count);
-		puts(server_reply);
+	//Send some data
+	if( send(sock , &request , sizeof(int_request) , 0) < 0)
+	{
+		puts("KudosClient: Send failed");
+		return 1;
 	}
+//
+//	//Receive the ack
+//	if( (rcv_count=recv(sock , &response , sizeof(int_response) , 0)) < 0)
+//	{
+//		puts("KudosClient: recv failed");
+//		return 50;
+//	}
+//	//repsonse retreived
+//	printf("echo :%s\n",response.echo);
+
+	//receive the verdict
+	if( ( rcv_count=recv(sock,&response, sizeof(int_response),0 ))<0){
+		puts("KudosClient: recv failed");
+		return 54;
+	}
+	printf("verdict: %s\nrcv_count=%d, strlen_resp=%d\n", response.verdict_s,rcv_count,sizeof(int_response));
 
 	close(sock);
 	return 0;

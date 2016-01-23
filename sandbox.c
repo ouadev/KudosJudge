@@ -26,8 +26,106 @@
  */
 
 
+/**
+ * jug_sandbox_start
+ */
+int jug_sandbox_start(){
+	int ret;
+	//init sandbox
+	global_sandbox=(struct sandbox* )malloc(sizeof(struct sandbox));
+	ret=jug_sandbox_init(global_sandbox);
+	if(ret){
+		debugt("sandbox_start","cannot init the sandbox");
+		return -1;
+	}
+	//init template
+	ret=jug_sandbox_template_init();
+	if(ret!=0){
+		debugt("sandbox_start","cannot init template process");
+		return -2;
+	}
+	//give them time to get ready
+	sleep(1.5);
+
+	return 0;
+}
 
 
+/**
+ * jug_sanbdox_stop
+ */
+int jug_sandbox_stop(){
+	jug_sandbox_template_term();
+
+	return 0;
+
+}
+
+
+/**
+ * entry function, may changed in the future after add compiling layer
+ * (code for experiment only, many hardcoded stuff)
+ */
+jug_verdict_enum jug_sandbox_judge(jug_submission* submission,struct sandbox* sbox){
+
+	return VERDICT_COMPILE_ERROR;
+	//////////////////////////////////
+	pid_t pid,c_pid;
+	int ret,status;
+	int infd,rightfd;
+	jug_sandbox_result result;
+
+	infd=open(		submission->input_filename,O_RDWR);
+	rightfd=open(	submission->output_filename,O_RDWR);
+
+	if(infd==-1 || rightfd==-1){
+		debugt("sandbox","%s", get_current_dir_name());
+		debugt("sandbx","infd (%d) or rightfd (%d) invalid : %s", infd, rightfd, strerror(errno) );
+		return VERDICT_OUTPUTLIMIT;
+	}
+	//change the config.ini default parameters with your own stuff
+	struct run_params runp;
+	runp.mem_limit_mb=-1;//1220000;
+	runp.time_limit_ms=-1;//1000;
+	runp.fd_datasource=infd;
+	runp.compare_output=compare_output;
+	runp.fd_output_ref=rightfd;
+	runp.thread_order=submission->thread_id;
+
+	int thread_order=submission->thread_id;
+	//args
+	char** args=(char**)malloc(3*sizeof(char**));
+	args[0]=(char*)malloc(99);
+	strcpy(args[0],submission->source);
+	args[1]=NULL;
+	ret=jug_sandbox_run_tpl(&runp,sbox,args[0],args,submission->thread_id);
+
+	close(infd);
+	close(rightfd);
+	//some error duting running
+	if(ret!=0){
+		return VERDICT_INTERNAL;
+	}
+	//process sandbox result
+	result=runp.result;
+	switch(result){
+	case JS_CORRECT:
+		return VERDICT_ACCEPTED;
+	case JS_WRONG:
+		return VERDICT_WRONG;
+	case JS_TIMELIMIT:
+	case JS_WALL_TIMELIMIT:
+		return VERDICT_TIMELIMIT;
+	case JS_OUTPUTLIMIT:
+		return VERDICT_OUTPUTLIMIT;
+	case JS_RUNTIME:
+		return VERDICT_RUNTIME;
+	case JS_PIPE_ERROR:
+	case JS_COMP_ERROR:
+	case JS_UNKNOWN:
+		return VERDICT_INTERNAL;
+	}
+}
 
 
 
@@ -316,25 +414,25 @@ int jug_sandbox_run_tpl(
 	//check fd_in a fd_out
 	//ps: fd_datasource is a fd to read from, it will be transmitted to Clone by pipe.
 	run_params_struct->fd_datasource_dir=1;
-//	if( (fd_datasource_flags=fcntl(run_params_struct->fd_datasource,F_GETFD) )<0 ){
-//		debugt("run_tpl","fd_datasource is not valid");
-//		return -4;
-//	}
+	//	if( (fd_datasource_flags=fcntl(run_params_struct->fd_datasource,F_GETFD) )<0 ){
+	//		debugt("run_tpl","fd_datasource is not valid");
+	//		return -4;
+	//	}
 	////////
-//	if((fd_datasource_flags&FD_CLOEXEC) ){
-//		debugt("run_tpl","fd_datasource is declared close-on-exec");
-//		return -5;
-//	}
-//	fd_datasource_status=fcntl(run_params_struct->fd_datasource,F_GETFL);
-//
-//	if( ! (fd_datasource_status&O_RDWR)){//imported from jug_sandbox_run()
-//		if(  !(fd_datasource_status&O_RDONLY) ){
-//			debugt("run_tpl","fd_datasource dir 0 is not readible , (%d,%d)",
-//					fd_datasource_status&O_RDWR,fd_datasource_status&O_RDONLY);
-//			return -6;
-//		}
-//
-//	}
+	//	if((fd_datasource_flags&FD_CLOEXEC) ){
+	//		debugt("run_tpl","fd_datasource is declared close-on-exec");
+	//		return -5;
+	//	}
+	//	fd_datasource_status=fcntl(run_params_struct->fd_datasource,F_GETFL);
+	//
+	//	if( ! (fd_datasource_status&O_RDWR)){//imported from jug_sandbox_run()
+	//		if(  !(fd_datasource_status&O_RDONLY) ){
+	//			debugt("run_tpl","fd_datasource dir 0 is not readible , (%d,%d)",
+	//					fd_datasource_status&O_RDWR,fd_datasource_status&O_RDONLY);
+	//			return -6;
+	//		}
+	//
+	//	}
 
 	////use thread_order to route the submission to the appropriate file descriptor
 	//parent side of multplixing.
@@ -409,7 +507,7 @@ int jug_sandbox_run_tpl(
 		if(watcher_alive){
 			wpid=waitpid(watcher_pid,&iw_status,WNOHANG);
 			if(wpid<0){
-				debugt("run_tpl","error waiting for the inner watcher");
+				debugt("run_tpl","error waiting for the inner watcher : %s", strerror(errno));
 				watcher_alive=0;
 			}else if(wpid>0){
 				if(WIFEXITED(iw_status)){
@@ -454,8 +552,8 @@ int jug_sandbox_run_tpl(
 		);
 
 		//if error writing: same bahaviour as False Comparing
-//		if(thread_order==1 && ds_sent>=0)
-//			debugt("run_tpl","order=%d, sendfile=%d",thread_order,ds_sent);
+		//		if(thread_order==1 && ds_sent>=0)
+		//			debugt("run_tpl","order=%d, sendfile=%d",thread_order,ds_sent);
 		if(ds_sent<0 && ds_sent!=EAGAIN){
 			debugt("run_tpl","senfile() error : %s",strerror(errno));
 			comp_result=JS_PIPE_ERROR;
@@ -468,8 +566,8 @@ int jug_sandbox_run_tpl(
 		//ps:ublocking read
 		count=read(run_params_struct->out_pipe[PIPE_READFROM],buffer,255);
 
-//		if( count>=0)
-//			debugt("run_tpl","order=%d, read count=%d",run_params_struct->thread_order,count);
+		//		if( count>=0)
+		//			debugt("run_tpl","order=%d, read count=%d",run_params_struct->thread_order,count);
 
 		if(ccp->sandbox_struct->show_submission_output && count!=-1 )
 			write(STDOUT_FILENO,buffer,count);
@@ -538,8 +636,8 @@ int jug_sandbox_run_tpl(
 			result=comp_result;
 		}
 		else result=watcher_result;
-		debugt("run_tpl","Watcher result : %s",jug_sandbox_result_str(watcher_result));
-		debugt("run_tpl","Judging result : %s",jug_sandbox_result_str(result));
+		debugt("run_tpl","[worker %d] Watcher result : %s",run_params_struct->thread_order,jug_sandbox_result_str(watcher_result));
+		debugt("run_tpl","[worker %d] Judging result : %s",run_params_struct->thread_order,jug_sandbox_result_str(result));
 	}
 
 	else
@@ -1038,10 +1136,10 @@ int jug_sandbox_template_init(){
 		debugt("js_template_init","cannot clone() the template process : %s",strerror(errno));
 		return -2;
 	}
-//	for(i=0;i<THREADS_MAX;i++){
-//		close(io_pipes_in[i][PIPE_READFROM]);
-//		close(io_pipes_out[i][PIPE_WRITETO]);
-//	}
+	//	for(i=0;i<THREADS_MAX;i++){
+	//		close(io_pipes_in[i][PIPE_READFROM]);
+	//		close(io_pipes_out[i][PIPE_WRITETO]);
+	//	}
 	close(template_pipe_rx[PIPE_WRITETO]);
 	close(template_pipe_tx[PIPE_READFROM]);
 	free(tpl_stack);
@@ -1058,7 +1156,7 @@ int jug_sandbox_template(void*arg){
 	close(template_pipe_tx[PIPE_WRITETO]);
 
 	while(1){
-		sleep(1);
+		sleep(10);
 		debugt("template","UP");
 	}
 	return 0;
@@ -1095,11 +1193,11 @@ void jug_sandbox_template_sighandler(int sig){
 	//unserialize
 	struct clone_child_params* ccp=jug_sandbox_template_unserialize(tx_buf);
 	//experiment: route the in/out pipes through already threading established pipes
-//	_thread_order=ccp->run_params_struct->thread_order;
-//	for(i=0;i<2;i++){
-//		ccp->run_params_struct->out_pipe[i]=io_pipes_out[_thread_order][i];
-//		ccp->run_params_struct->in_pipe[i]=io_pipes_in[_thread_order][i];
-//	}
+	//	_thread_order=ccp->run_params_struct->thread_order;
+	//	for(i=0;i<2;i++){
+	//		ccp->run_params_struct->out_pipe[i]=io_pipes_out[_thread_order][i];
+	//		ccp->run_params_struct->in_pipe[i]=io_pipes_in[_thread_order][i];
+	//	}
 	//clone preparation
 	char* cloned_stack;
 	char *cloned_stacktop;
@@ -1113,6 +1211,7 @@ void jug_sandbox_template_sighandler(int sig){
 	}
 	cloned_stacktop=cloned_stack;
 	cloned_stacktop+=STACK_SIZE;
+
 	int JUG_CLONE_SANDBOX=CLONE_NEWUTS|CLONE_NEWNET|CLONE_NEWPID|CLONE_NEWNS;
 	cloned_pid=clone(jug_sandbox_child,cloned_stacktop,JUG_CLONE_SANDBOX|CLONE_PARENT|SIGCHLD,(void*)ccp);
 	if(cloned_pid==-1){
@@ -1191,7 +1290,8 @@ pid_t jug_sandbox_template_clone(void*arg, int len){
 
 //jug_sandbox_template_term //[main_process/any_thread]
 void jug_sandbox_template_term() {
-	kill(template_pid,SIGKILL);
+	if(template_pid>0)
+		kill(template_pid,SIGKILL);
 	template_pid=-1;
 }
 
@@ -1301,6 +1401,9 @@ void jug_sandbox_template_freeccp(struct clone_child_params* ccp){
 }
 
 
+
+
+
 //jug_sandbox_create_cgroup
 //private
 
@@ -1383,14 +1486,14 @@ unsigned long jug_sandbox_memory_usage(pid_t pid){
 	content[r]='\0';
 	sscanf(content,"%ld %ld %ld %ld %ld %ld %ld",&vmsize,&resident,&share,&text,&lib,&data,&dt);
 
-//	debugt("mem_usage","content : %ld %ld %ld %ld %ld %ld %ld ",
-//			vmsize*page_size,
-//			resident*page_size,
-//			share*page_size,
-//			text*page_size,
-//			lib*page_size,
-//			data*page_size,
-//			dt*page_size);
+	//	debugt("mem_usage","content : %ld %ld %ld %ld %ld %ld %ld ",
+	//			vmsize*page_size,
+	//			resident*page_size,
+	//			share*page_size,
+	//			text*page_size,
+	//			lib*page_size,
+	//			data*page_size,
+	//			dt*page_size);
 
 	//
 	close(procfd);

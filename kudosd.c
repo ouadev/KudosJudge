@@ -18,6 +18,13 @@
 #include <errno.h>
 
 #include "log.h"
+#include "interface.h"
+#include "queue.h"
+#include "protocol.h"
+#include "sandbox.h"
+
+
+
 typedef enum {DAEMON_ACTION_START,DAEMON_ACTION_STOP,DAEMON_ACTION_RESTART,DAEMON_ACTION_STATE} daemon_action_enum;
 
 int kjd_daemonize();
@@ -170,7 +177,7 @@ int main(int argc, char* argv[]){
 
 
 	printf("starting ...\n");
-	printf("started\n");
+	printf("\033[0;32mstarted\033[0m\n");
 	printf("use\033[1;30m $./kudosd state\033[0m to check if the daemon is running \n");
 	/**
 	 *
@@ -180,16 +187,39 @@ int main(int argc, char* argv[]){
 	openlog("kudosd", LOG_PID|LOG_CONS, LOG_USER);
 	//daemonize
 	error=kjd_daemonize();
+	//redirect stderr debug to
+	char stderr_tmpfile[40];
+	sprintf(stderr_tmpfile,"/tmp/kudosd-stderr-%d",getpid());
+	freopen(stderr_tmpfile,"w+",stderr);
+	////////////////////////
+	///////init sandbox////
+	//////////////////////
+	error=jug_sandbox_start();
+	if(error<0){
+		kjd_log("Sandbox not started");
+		return -556;
+	}
+	kjd_log("Sandbox started");
+	///////////////////
+	//init queue /////
+	/////////////////
+	error=queue_start();
+	if(error){
+		kjd_log("Queue not started,  error %d",error);
+		return -100;
+	}
+	kjd_log("Queue and workers are ready");
 
-	//setup tcp server
-
+	/////////////////////
+	//setup tcp server//
+	//////////////////
 	//Create socket
 	socket_desc = socket(AF_INET , SOCK_STREAM , 0);
 	if (socket_desc == -1)
 	{
 		kjd_log("Could not create socket");
 	}
-	kjd_log("Socket created");
+
 
 	//Prepare the sockaddr_in structure
 	server.sin_family = AF_INET;
@@ -200,12 +230,12 @@ int main(int argc, char* argv[]){
 	if( bind(socket_desc,(struct sockaddr *)&server , sizeof(server)) < 0)
 	{
 		//print the error message
-		kjd_log("bind failed. Error");
+		kjd_log("bind failed. Error: %s",strerror(errno));
 		return 1;
 	}
-	kjd_log("bind done");
 
-	kjd_log("KudosJudge Daemon Up ...");
+
+
 	//here create a tmpfile_new
 	tmpfile_pid_new=fopen(tmp_path,"w+");
 	if(tmpfile_pid_new==NULL){
@@ -219,13 +249,18 @@ int main(int argc, char* argv[]){
 		return 3;
 	}
 	fclose(tmpfile_pid_new);
-	//looop
+	////////////////////
+	///////looop////////
+	///////////////////
+	int_request request;
+	int_response response;
+	int n_got=0;
 	while(1){
 		//Listen
 		listen(socket_desc , 3);
 
 		//Accept and incoming connection
-		kjd_log("Waiting for incoming connections...");
+		kjd_log("Listening ....");
 		c = sizeof(struct sockaddr_in);
 
 		//accept connection from an incoming client
@@ -237,23 +272,13 @@ int main(int argc, char* argv[]){
 		}
 		kjd_log("Connection accepted");
 
-		//Receive a message from client
-		while( (read_size = recv(client_sock , client_message , 2000 , 0)) > 0 )
-		{
+		//push the handle in the queue
+		jug_connection* new_connection=(jug_connection*)malloc(sizeof(jug_connection));
+		new_connection->client_socket=client_sock;
 
-			//Send the message back to client
-			write(client_sock , client_message , read_size);
-		}
+		queue_push_connection(new_connection);
+		kjd_log("Client_sock inserted in Queue");
 
-		if(read_size == 0)
-		{
-			kjd_log("Client disconnected");
-			fflush(stdout);
-		}
-		else if(read_size == -1)
-		{
-			kjd_log("recv failed");
-		}
 	}
 	//main loop
 	kjd_log("KudosJudge shutdown ....");
@@ -284,7 +309,6 @@ int kjd_daemonize(){
 		exit(-1);
 	}
 	//signal stuff
-	signal(SIGCHLD, SIG_IGN);
 	signal(SIGHUP, SIG_IGN);
 	signal(SIGINT, kjd_sighandler); //used to shutdown the daemon
 
@@ -316,12 +340,23 @@ int kjd_daemonize(){
 
 void kjd_sighandler(int sig){
 	if(sig==SIGINT){
-		//request to shutdown the daemon
-		//here should implement the cleaning process
+		kjd_log("SIGINT received, exiting ... ");
 		//clean the ramfs, kill the template process, remove all tmp files, and exit
+		//kill threads.
+		kjd_log("stopping Workers...");
+		if(queue_stop_workers()){
+			kjd_log("failed to stop Queue's workers");
+			return;
+		}
+		//stopping sandbox (template process)
+		kjd_log("stopping Sandbox");
+		if(jug_sandbox_stop()){
+			kjd_log("failed to stop Sandbox");
+			return ;
+		}
+		//remove tmp file
 		unlink("/tmp/kudosd-pid");
-		//exit
-		kjd_log("SIGINT received,  T'hlla :) ");
+		//exi
 		exit(0);
 
 	}

@@ -3,17 +3,18 @@ SUBDIRS=iniparser proc_maps_parser
 
 #build the kudos deamon
 kudosd: all
-	gcc kudosd.o iniparser/iniparser.o config.o log.o sandbox.o compare.o \
+	gcc kudosd.o iniparser/iniparser.o config.o log.o sandbox.o \
+	compare.o queue.o interface.o protocol.o \
 	-o bin/kudosd -lcgroup -lpthread
 
 #build the experimental client
-client: client.o
+client: client.o kudosd
 	gcc client.o -o bin/client
 
 client.o: client.c
 	gcc -c client.c -o client.o
 #compile root directory
-all: subdirs log.o config.o ramfs.o sandbox.o compare.o kudosd.o
+all: subdirs log.o config.o ramfs.o sandbox.o compare.o queue.o interface.o protocol.o kudosd.o 
 	
 kudosd.o: kudosd.c
 	gcc -c kudosd.c -o kudosd.o
@@ -33,6 +34,14 @@ sandbox.o:sandbox.c
 compare.o:compare.c
 	gcc -c compare.c -o compare.o
 	
+queue.o: queue.c
+	gcc -c queue.c -o queue.o
+	
+interface.o:interface.c
+	gcc -c interface.c -o interface.o
+
+protocol.o:protocol.c
+	gcc -c protocol.c -o protocol.o
 #compile subdirs
 .PHONY: subdirs $(SUBDIRS)
 subdirs: $(SUBDIRS)

@@ -11,14 +11,14 @@
 #define JUG_SANDBOX
 
 #define _GNU_SOURCE
-#include <sched.h>
+
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <libcgroup.h>
 #include <pwd.h>
 #include <grp.h>
-
+#include <sched.h>
 #include <sys/utsname.h>
 #include <sys/wait.h>
 #include <sys/mount.h>
@@ -40,6 +40,7 @@
 
 #include "config.h"
 #include "compare.h"
+#include "protocol.h"
 
 
 #define PIPE_WRITETO 1
@@ -146,6 +147,8 @@ struct clone_child_params{
  * 		 they are accessed only from the watcher process. and not from the spawner thread.
  * 		 other global-like variables are inserted in run_params in the 'execution state section'
  */
+///< the global sandbox instance
+struct sandbox* global_sandbox;
 ///< the pid of the binary, seen from inside the namespace.
 int binary_pid;
 ///< indicates the state of the execution of the binary
@@ -162,6 +165,22 @@ pthread_mutex_t template_pipe_mutex;
 ///< pool of pipes, each calling thread uses one. the same meaning as normal mode
 int io_pipes_out[THREADS_MAX][2];  //retreive from the submission
 int io_pipes_in [THREADS_MAX][2]; //feed the submission
+
+
+/**
+ * jug_sandbox_start
+ * @desc called by the daemon to start the sandbox( template process, init , ...)
+ *
+ */
+
+int jug_sandbox_start();
+
+/**
+ * jug_sandbox_stop
+ * @desc called by the daemon before exiting to kill the template process and clean
+ */
+
+int jug_sandbox_stop();
 
 /**
  * @desc	init the sandbox. By design this function should be called once.
@@ -311,6 +330,11 @@ struct clone_child_params* jug_sandbox_template_unserialize(void*serial);
  */
 void jug_sandbox_template_freeccp(struct clone_child_params* ccp);
 
-
+/**
+ * jug_sandbox_judge
+ * @description takes a submission as a parameter and try to judge it.
+ * @note	in future we will need to add compiling layer.
+ */
+jug_verdict_enum jug_sandbox_judge(jug_submission* submission,struct sandbox* sbox);
 
 #endif
