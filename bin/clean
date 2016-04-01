@@ -1,1 +1,2 @@
-kill `pidof kudosd`
+kill `pidof kudosd`;
+rm /tmp/kudosd-stderr-$1*;

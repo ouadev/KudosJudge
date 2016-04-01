@@ -15,7 +15,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <libcgroup.h>
+//#include <libcgroup.h>
 #include <pwd.h>
 #include <grp.h>
 #include <sched.h>
@@ -81,6 +81,7 @@ typedef enum{
  */
 struct sandbox{
 	//parameters
+	int use_ERFS;		/// whether to use EXecution Root File System
 	char* chroot_dir;	 ///< path to the root fs to use (to chroot into)
 	int use_cgroups; 	///< wether to use cgroups;
 	int use_setrlimit;	///< wether to use setrlimit : resources limit in linux.
@@ -198,7 +199,7 @@ int jug_sandbox_init(struct sandbox* sandbox_struct);
  * @param sandbox_struct the sandbox structure that contains the sandbox parameters
  * @return 0 in success
  */
-int jug_sandbox_create_cgroup(struct cgroup* sandbox_cgroup,struct sandbox* sandbox_struct);
+//int jug_sandbox_create_cgroup(struct cgroup* sandbox_cgroup,struct sandbox* sandbox_struct);
 
 /**
  * @desc Run a program inside the sandbox (the main function)

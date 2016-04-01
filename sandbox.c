@@ -31,9 +31,11 @@
  */
 int jug_sandbox_start(){
 	int ret;
+
 	//init sandbox
 	global_sandbox=(struct sandbox* )malloc(sizeof(struct sandbox));
 	ret=jug_sandbox_init(global_sandbox);
+
 	if(ret){
 		debugt("sandbox_start","cannot init the sandbox");
 		return -1;
@@ -68,7 +70,7 @@ int jug_sandbox_stop(){
  */
 jug_verdict_enum jug_sandbox_judge(jug_submission* submission,struct sandbox* sbox){
 
-	return VERDICT_COMPILE_ERROR;
+	//return VERDICT_COMPILE_ERROR;
 	//////////////////////////////////
 	pid_t pid,c_pid;
 	int ret,status;
@@ -80,7 +82,7 @@ jug_verdict_enum jug_sandbox_judge(jug_submission* submission,struct sandbox* sb
 
 	if(infd==-1 || rightfd==-1){
 		debugt("sandbox","%s", get_current_dir_name());
-		debugt("sandbx","infd (%d) or rightfd (%d) invalid : %s", infd, rightfd, strerror(errno) );
+		debugt("sandbox","infd (%d) or rightfd (%d) invalid : %s", infd, rightfd, strerror(errno) );
 		return VERDICT_OUTPUTLIMIT;
 	}
 	//change the config.ini default parameters with your own stuff
@@ -98,12 +100,14 @@ jug_verdict_enum jug_sandbox_judge(jug_submission* submission,struct sandbox* sb
 	args[0]=(char*)malloc(99);
 	strcpy(args[0],submission->source);
 	args[1]=NULL;
+	//run_tpl
 	ret=jug_sandbox_run_tpl(&runp,sbox,args[0],args,submission->thread_id);
 
 	close(infd);
 	close(rightfd);
 	//some error duting running
 	if(ret!=0){
+		//kjd_log("run_tpl ret=%d",ret);
 		return VERDICT_INTERNAL;
 	}
 	//process sandbox result
@@ -453,8 +457,15 @@ int jug_sandbox_run_tpl(
 	//serialize
 	void* serial;
 	int serial_len=jug_sandbox_template_serialize(&serial,ccp);
-	//clone request
+
+	//debug
+
+
+	//CLONE BY TEMPLATE PROCESS////////////
 	watcher_pid=jug_sandbox_template_clone(serial,serial_len);
+	/////////////////////////////////
+
+
 	run_params_struct->watcher_pid=watcher_pid;
 	//free memory
 	free(serial);
@@ -631,6 +642,8 @@ int jug_sandbox_run_tpl(
 	//end while (we're done)
 	//fflush(stderr);
 	//fflush(stdout);
+
+
 	if(spawn_succeeded){
 		if(watcher_result==JS_CORRECT){
 			result=comp_result;
@@ -654,7 +667,7 @@ int jug_sandbox_run_tpl(
 	free(ccp);
 
 
-
+	kjd_log("run_tpl here :)");
 	return 0;
 
 
@@ -679,26 +692,33 @@ int jug_sandbox_child(void* arg){
 	setdomainname("KudosJudgeDomain",30);
 	//we're using linux cgroups
 	if(ccp->sandbox_struct->use_cgroups){
-		fail=cgroup_attach_task(ccp->sandbox_struct->sandbox_cgroup);
-		if(fail){
-			debugt("jug_sandbox_child",cgroup_strerror(fail) );
-			exit(-1);
-		}
+//		fail=cgroup_attach_task(ccp->sandbox_struct->sandbox_cgroup);
+//		if(fail){
+//			debugt("jug_sandbox_child",cgroup_strerror(fail) );
+//			exit(-1);
+//		}
 	}
 
 	//chrooting
-	char wd[100];
-	fail=chdir(ccp->sandbox_struct->chroot_dir);
-	if(fail){
-		debugt("jug_sandbox_child","chdir() failed, dir:%s",ccp->sandbox_struct->chroot_dir);
-		exit(-2);
+	if(ccp->sandbox_struct->use_ERFS)
+	{
+		char wd[100];
+		fail=chdir(ccp->sandbox_struct->chroot_dir);
+		if(fail){
+			debugt("jug_sandbox_child","chdir() failed, dir:%s",ccp->sandbox_struct->chroot_dir);
+			exit(-2);
+		}
+
+		fail= chroot(".");
+		if( fail){
+			debugt("jug_sandbox_child","error chrooting, linux error : %s\n",strerror(errno));
+			exit(-3);
+		}
+	}else{
+		debugt("Running without ERFS mode");
+		chdir("/");
 	}
 
-	fail= chroot(".");
-	if( fail){
-		debugt("jug_sandbox_child","error chrooting, linux error : %s\n",strerror(errno));
-		exit(-3);
-	}
 
 	//remount the proc so it prints the new stuff (CLONE_NEWPID to work)
 	//the clone CLONE_NEWNS makes it possible that each submission has its own mount points
@@ -710,7 +730,7 @@ int jug_sandbox_child(void* arg){
 	}
 	fail= mount("none","/proc","proc",MS_RDONLY,NULL);
 	if(fail){
-		debugt("jug_sandbox_child","error remounting sandbox /proc, linux error : %s\n",strerror(errno));
+		debugt("watcher","error remounting sandbox /proc, linux error : %s\n",strerror(errno));
 		exit(-4);
 	}
 	//remount the /tmp directory, each submission sees its own stuff
@@ -985,6 +1005,8 @@ int jug_sandbox_init(struct sandbox* sandbox_struct){
 	int error;
 	struct sandbox* sb=sandbox_struct;
 	char* value;
+	//check env variabl
+	char* jug_path=getenv("JUG_ROOT");
 	//add stack_size
 	//mem limit mb
 	if( (value=jug_get_config("Executer","mem_limit_mb") )==NULL ){
@@ -1049,40 +1071,47 @@ int jug_sandbox_init(struct sandbox* sandbox_struct){
 		return -1;
 	}
 	sb->show_submission_output= atoi(value);
+
+	//whether to use EXecution Root File System to run submissions inside.
+	if( (value=jug_get_config("Executer","use_ERFS") )==NULL ){
+		debugt("sandbox","cannot read use_ERFS config");
+		return -1;
+	}
+	sb->use_ERFS= atoi(value);
 	//fill sandbox's state
 	sb->nbr_instances=0;
 
 	//check if cgroup filesystem is properly mounted
 	if(sb->use_cgroups){
-		error=cgroup_init();
-		if(error){
-			debugt("sandbox_init",cgroup_strerror(error));
-			return -4;
-		}
-		//check for memory controller is mounted
-		char* mount_mem;char* mountp;
-		cgroup_get_subsys_mount_point("memory",&mountp  );
-		if(!mountp){
-			debugt("sandbox_init","memory controller not mounted");
-			return -3;
-		}
-
-		struct cgroup* sandbox_cgroup=cgroup_new_cgroup("jug_sandbox");
-		if(!sandbox_cgroup){
-			debugt("sandbox_init","error cgroup_new_cgroup()");
-			return -5;
-		}
-		error=cgroup_get_cgroup(sandbox_cgroup);
-		if(error){
-			//cgroup unfound
-			error=jug_sandbox_create_cgroup(sandbox_cgroup,sb);
-			if(error){
-				debugt("sandbox_init","cannot create the sandbox cgroup");
-				return -6;
-			}
-		}
-		//cgroup created
-		sb->sandbox_cgroup=sandbox_cgroup;
+//		error=cgroup_init();
+//		if(error){
+//			debugt("sandbox_init",cgroup_strerror(error));
+//			return -4;
+//		}
+//		//check for memory controller is mounted
+//		char* mount_mem;char* mountp;
+//		cgroup_get_subsys_mount_point("memory",&mountp  );
+//		if(!mountp){
+//			debugt("sandbox_init","memory controller not mounted");
+//			return -3;
+//		}
+//
+//		struct cgroup* sandbox_cgroup=cgroup_new_cgroup("jug_sandbox");
+//		if(!sandbox_cgroup){
+//			debugt("sandbox_init","error cgroup_new_cgroup()");
+//			return -5;
+//		}
+//		error=cgroup_get_cgroup(sandbox_cgroup);
+//		if(error){
+//			//cgroup unfound
+//			error=jug_sandbox_create_cgroup(sandbox_cgroup,sb);
+//			if(error){
+//				debugt("sandbox_init","cannot create the sandbox cgroup");
+//				return -6;
+//			}
+//		}
+//		//cgroup created
+//		sb->sandbox_cgroup=sandbox_cgroup;
 	}
 	//check the sandbox root env.
 	struct stat st={0};
@@ -1213,7 +1242,12 @@ void jug_sandbox_template_sighandler(int sig){
 	cloned_stacktop+=STACK_SIZE;
 
 	int JUG_CLONE_SANDBOX=CLONE_NEWUTS|CLONE_NEWNET|CLONE_NEWPID|CLONE_NEWNS;
+
+	/////ACTUAL CLONING
 	cloned_pid=clone(jug_sandbox_child,cloned_stacktop,JUG_CLONE_SANDBOX|CLONE_PARENT|SIGCHLD,(void*)ccp);
+	//////////
+
+
 	if(cloned_pid==-1){
 		debugt("js_tpl_sighandler","cannot clone: %s",strerror(errno));
 		sprintf(pipe_buf,"%d",-2);
@@ -1407,33 +1441,33 @@ void jug_sandbox_template_freeccp(struct clone_child_params* ccp){
 //jug_sandbox_create_cgroup
 //private
 
-int jug_sandbox_create_cgroup(struct cgroup* sandbox,struct sandbox* sandbox_struct){
-	int suc;
-	//config it
-	//the user creating the cgroup is the one who can play with it
-	pid_t uid=getuid();
-	gid_t gid=getgid();
-	cgroup_set_uid_gid(sandbox,uid,gid,(uid_t)uid,(gid_t)gid);
-	struct cgroup_controller* sandbox_memory=cgroup_add_controller(sandbox,"memory");
-	if(sandbox_memory==NULL){
-		debugt("sandbox_create_cgroup","cannot add memory controller");
-		return -1;
-	}
-	//limit memory in bytes
-	cgroup_set_value_int64(sandbox_memory,"memory.limit_in_bytes",sandbox_struct->mem_limit_mb_default*1000000);
-
-
-	//create group
-	suc=cgroup_create_cgroup(sandbox,0);
-	if(suc){
-		debugt("sandbox_create_cgroup",cgroup_strerror(suc));
-		return -10;
-	}
-
-
-	return 0;
-
-}
+//int jug_sandbox_create_cgroup(struct cgroup* sandbox,struct sandbox* sandbox_struct){
+//	int suc;
+//	//config it
+//	//the user creating the cgroup is the one who can play with it
+//	pid_t uid=getuid();
+//	gid_t gid=getgid();
+//	cgroup_set_uid_gid(sandbox,uid,gid,(uid_t)uid,(gid_t)gid);
+//	struct cgroup_controller* sandbox_memory=cgroup_add_controller(sandbox,"memory");
+//	if(sandbox_memory==NULL){
+//		debugt("sandbox_create_cgroup","cannot add memory controller");
+//		return -1;
+//	}
+//	//limit memory in bytes
+//	cgroup_set_value_int64(sandbox_memory,"memory.limit_in_bytes",sandbox_struct->mem_limit_mb_default*1000000);
+//
+//
+//	//create group
+//	suc=cgroup_create_cgroup(sandbox,0);
+//	if(suc){
+//		debugt("sandbox_create_cgroup",cgroup_strerror(suc));
+//		return -10;
+//	}
+//
+//
+//	return 0;
+//
+//}
 
 
 

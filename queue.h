@@ -14,8 +14,10 @@
 #include "config.h"
 #include "interface.h"
 #include "protocol.h"
+#include "sandbox.h"
 
-#define DEBUG_THREADING 0
+
+#define DEBUG_THREADING 1
 #define MAX_DEBUG_THREAD_STATES_COUNT 10000
 
 

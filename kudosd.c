@@ -187,6 +187,7 @@ int main(int argc, char* argv[]){
 	openlog("kudosd", LOG_PID|LOG_CONS, LOG_USER);
 	//daemonize
 	error=kjd_daemonize();
+
 	//redirect stderr debug to
 	char stderr_tmpfile[40];
 	sprintf(stderr_tmpfile,"/tmp/kudosd-stderr-%d",getpid());
@@ -194,6 +195,13 @@ int main(int argc, char* argv[]){
 	////////////////////////
 	///////init sandbox////
 	//////////////////////
+	//check env variables
+	char* jug_path=getenv("JUG_ROOT");
+	if(!jug_path){
+		kjd_log("JUG_ROOT environment variable must be set to the path of the jug installation");
+		return -889;
+	}
+	//start
 	error=jug_sandbox_start();
 	if(error<0){
 		kjd_log("Sandbox not started");

@@ -169,7 +169,13 @@ void queue_worker_serv(jug_connection* connection)
 	sprintf(submission.source,"/bin/ls");
 	debugt("judge","in:%s, out:%s",submission.input_filename,submission.output_filename );
 	submission.thread_id=queue_worker_id();
-	verdict=jug_sandbox_judge(&submission, global_sandbox);
+
+	//
+
+
+	//SEND TO SANDBOX TO JUDGE
+	//verdict=jug_sandbox_judge(&submission, global_sandbox);
+	verdict=VERDICT_ACCEPTED;
 	//verdict=VERDICT_ACCEPTED;
 
 	free(submission.input_filename);

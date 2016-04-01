@@ -5,7 +5,7 @@ SUBDIRS=iniparser proc_maps_parser
 kudosd: all
 	gcc kudosd.o iniparser/iniparser.o config.o log.o sandbox.o \
 	compare.o queue.o interface.o protocol.o \
-	-o bin/kudosd -lcgroup -lpthread
+	-o bin/kudosd  -lpthread
 
 #build the experimental client
 client: client.o kudosd
