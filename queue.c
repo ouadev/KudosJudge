@@ -126,7 +126,10 @@ jug_connection* queue_pop_connection()
 	return result;
 }
 
-
+int factor(int x){
+	if(x==0) return 1;
+	return x*factor(x-1);
+}
 
 //NOTE : here for now
 void queue_worker_serv(jug_connection* connection)
@@ -169,9 +172,8 @@ void queue_worker_serv(jug_connection* connection)
 	submission.thread_id=queue_worker_id();
 
 	// SEND TO THE SANDBOX
-	//verdict=jug_sandbox_judge(&submission);
+//	verdict=jug_sandbox_judge(&submission);
 	verdict=VERDICT_ACCEPTED;
-	//verdict=VERDICT_ACCEPTED;
 
 	free(submission.input_filename);
 	free(submission.output_filename);

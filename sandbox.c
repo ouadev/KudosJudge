@@ -668,6 +668,14 @@ int jug_sandbox_run_tpl(
  */
 //reside@[main_process], run@[template_forked_process|watcher_process]
 int jug_sandbox_child(void* arg){
+
+	///UNIT-TESTING:
+	exit(JS_CORRECT);
+	////UNIT-TESTING
+
+
+
+
 	int fail=0;
 	//
 	debugt("watcher","Starting...");
@@ -767,6 +775,7 @@ int jug_sandbox_child(void* arg){
 
 	////forking to the process that will execute the binary.
 	debugt("watcher","forking to the binary...");
+	//WATCHER FORKs TO THE SUBMISSION
 	binary_pid=fork();
 	if(binary_pid<0){
 		debugt("watcher","cannot fork the grandchild, exiting...");

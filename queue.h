@@ -125,6 +125,7 @@ enum {THREAD_CREATED,
 	THREAD_STATE_COUNT};
 
 
+int factor(int x);
 
 /**
  * thread_debug_snapshot()
