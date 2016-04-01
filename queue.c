@@ -63,8 +63,7 @@ int queue_launch_workers(jug_queue* queue){
 			return -1;
 		}
 #if DEBUG_THREADING
-		debug_thread_state dumb = {i,THREAD_CREATED,debug_get_time()};
-		debug_push_thread_state(dumb);
+		thread_debug_snapshot(THREAD_CREATED,"");
 #endif
 
 	}
@@ -166,15 +165,11 @@ void queue_worker_serv(jug_connection* connection)
 
 	sprintf(submission.input_filename,"%s/tests/problems/twins/twins.in",jug_root);
 	sprintf(submission.output_filename,"%s/tests/problems/twins/twins.out",jug_root);
-	sprintf(submission.source,"/bin/ls");
-	debugt("judge","in:%s, out:%s",submission.input_filename,submission.output_filename );
+	sprintf(submission.source,"/opt/twins");
 	submission.thread_id=queue_worker_id();
 
-	//
-
-
-	//SEND TO SANDBOX TO JUDGE
-	//verdict=jug_sandbox_judge(&submission, global_sandbox);
+	// SEND TO THE SANDBOX
+	//verdict=jug_sandbox_judge(&submission);
 	verdict=VERDICT_ACCEPTED;
 	//verdict=VERDICT_ACCEPTED;
 
@@ -203,7 +198,7 @@ int queue_worker_id(){
 		if( pthread_equal(g_workers[i],current))
 			return i;
 	}
-	debugt("queue","queue_worker_id failed ");
+	//no doubt the main process then
 	return -1; //equivalent of the main thread, well i think
 }
 
@@ -215,76 +210,95 @@ void* queue_worker_main(void* data)
 {
 	jug_worker_arg* worker_data = (jug_worker_arg*) data;
 	jug_queue* work_queue = worker_data->work_queue;
+	int worker_id=queue_worker_id();
 
 #if DEBUG_THREADING
-	debug_thread_state dumb = {worker_data->thread_id,THREAD_STARTED
-			,debug_get_time()};
-	debug_push_thread_state(dumb);
+//	debug_thread_state dumb = {worker_data->thread_id,THREAD_STARTED
+//			,thread_debug_get_time()};
+//	debug_push_thread_state(dumb);
+
+	thread_debug_snapshot(THREAD_STARTED,"");
+
 #endif
 
 	for(;;)
 	{
 #if DEBUG_THREADING      
-		debug_thread_state dumb = {worker_data->thread_id,
-				THREAD_WAITING
-				,debug_get_time()};
-		debug_push_thread_state(dumb);
-
+//		debug_thread_state dumb = {worker_data->thread_id,
+//				THREAD_WAITING
+//				,thread_debug_get_time()};
+//		debug_push_thread_state(dumb);
+		thread_debug_snapshot(THREAD_WAITING,"");
 		sem_wait(&work_queue->work_semaphore);
 
 		int sem_va;
 		sem_getvalue(&work_queue->work_semaphore,&sem_va);
-		char *mem_leak_msg = (char*)malloc(20);
-		sprintf(mem_leak_msg,"sem_va %d",sem_va);
-		dumb = {worker_data->thread_id,THREAD_WAKED_UP
-				,debug_get_time(),mem_leak_msg};
-		debug_push_thread_state(dumb);
+
+		thread_debug_snapshot(THREAD_WAKED_UP,"sem_va %d",sem_va);
+
 #else
 		sem_wait(&work_queue->work_semaphore);
 #endif
-		jug_connection* connection = queue_pop_connection(work_queue);
+		jug_connection* connection= queue_pop_connection(work_queue);
 
 		if(connection!=0)
 		{
 #if DEBUG_THREADING
-			debug_thread_state dumb =
-			{worker_data->thread_id,THREAD_WORKING,
-					debug_get_time(),submission->source};
-			debug_push_thread_state(dumb);
+			thread_debug_snapshot(THREAD_WORKING,"");
 #endif
 
 			queue_worker_serv(connection);
-			return NULL;
+			thread_debug_snapshot(THREAD_FINISH,"");
+			//print thread_debug
+			thread_debug_print();
+
 		}
 	}
 }
 
 
-
-
 #if DEBUG_THREADING
+/**
+ * globals
+ */
+thread_debug_state global_thread_debug_states[MAX_DEBUG_THREAD_STATES_COUNT];
+int global_thread_debug_state_count=0;
+/////snapshot
+
+void thread_debug_snapshot(int state, char* format, ...){
+	thread_debug_state dumb;
+	dumb.thread_id=queue_worker_id();
+	dumb.state=state;
+	dumb.time=thread_debug_get_time();
+	//
+	char* dbg_msg=(char*)malloc(strlen(format)+200);
+	va_list args;
+	va_start(args,format);
+	vsprintf(dbg_msg,format,args);
+	va_end(args);
+	//
+	strcpy(dumb.msg,dbg_msg);
+	thread_debug_push(dumb);
+	free(dbg_msg);
+
+}
+
+
+/////get time
 
 time_t thread_debug_get_time()
 {
-	timespec now;
+	struct timespec now;
 	clock_gettime(CLOCK_REALTIME, &now);
 
 	return (now.tv_sec);// - debug_wall_clock.tv_sec);
 }
 
-debug_thread_state debug_thread_states[MAX_DEBUG_THREAD_STATES_COUNT];
-int debug_thread_states_count = 0;
-char* debug_thread_state_names[THREAD_STATE_COUNT] =
-{
-		"THREAD_CREATED"
-		,"THREAD_STARTED"
-		,"THREAD_WORKING_NEW_WORK"
-		,"THREAD_WAITING_NO_WORK"
-		,"THREAD_WAKED_UP"
-};
+
+
 
 //push
-void thread_debug_push(debug_thread_state s)
+void thread_debug_push(thread_debug_state s)
 {
 	/*
     //DEBUG!!
@@ -296,26 +310,35 @@ void thread_debug_push(debug_thread_state s)
         first = 0;
     }
     pthread_mutex_lock(&mutex);*/
-	if(debug_thread_states_count < MAX_DEBUG_THREAD_STATES_COUNT)
-		debug_thread_states[debug_thread_states_count++] = s;
+	if(global_thread_debug_state_count < MAX_DEBUG_THREAD_STATES_COUNT)
+		global_thread_debug_states[global_thread_debug_state_count++] = s;
 	//pthread_mutex_unlock(&mutex);
 }
-
 ///////////////
 void  thread_debug_print(){
 
-	int where =0;
-	debugt("thread-debug","num_saved_states = %d\n", debug_thread_states_count);
-	for(int i=where;i<debug_thread_states_count;i++)
+	int where =0, i;
+	debugt("thread-debug","num_saved_states = %d", global_thread_debug_state_count);
+	char* state_strs[THREAD_STATE_COUNT] =
 	{
-		tm lt = *localtime(&debug_thread_states[i].time);
+			"THREAD_CREATED"
+			,"THREAD_STARTED"
+			,"THREAD_WORKING_NEW_WORK"
+			,"THREAD_WAITING_NO_WORK"
+			,"THREAD_WAKED_UP"
+			,"THREAD_FINISH_WORK_DONE"
+	};
+	for(i=where;i<global_thread_debug_state_count;i++)
+	{
+		struct tm lt = *localtime(&global_thread_debug_states[i].time);
 
-		debugt("thread-debug","%d:%d:%d - ID_%d - %s - %s\n",lt.tm_hour,lt.tm_min,lt.tm_sec,
-				debug_thread_states[i].thread_id,
-				debug_thread_state_names[debug_thread_states[i].state],
-				debug_thread_states[i].msg);
+		debugt("thread-debug","%d:%d:%d\tID_%d\t%s\t%s",lt.tm_hour,lt.tm_min,lt.tm_sec,
+				global_thread_debug_states[i].thread_id,
+				state_strs[global_thread_debug_states[i].state],
+				global_thread_debug_states[i].msg);
 	}
-	where = debug_thread_states_count;
+	///reset the array
+	global_thread_debug_state_count=0;
 }
 
 #endif

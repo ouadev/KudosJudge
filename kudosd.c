@@ -3,6 +3,7 @@
  * main entry of the judge.
  */
 //TODO: implement cleaning-up function for each of components, this functions to be called when exiting from the daemon
+//TODO: do the same for restart command. must do a proper stop
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -10,7 +11,7 @@
 #include <string.h>
 #include<sys/socket.h>
 #include<arpa/inet.h>
-#include <syslog.h>
+
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -30,10 +31,10 @@ typedef enum {DAEMON_ACTION_START,DAEMON_ACTION_STOP,DAEMON_ACTION_RESTART,DAEMO
 int kjd_daemonize();
 void kjd_sighandler(int sig);
 void kjd_exit(int status, char* syslog_msg);
-void kjd_log(char* msg,...);
+
 
 int main(int argc, char* argv[]){
-	char* usage_str="kudosd [start|stop|restart|state]";
+	char* usage_str="kudosd [start|stop|restart|state|-v]";
 	int error;
 	int socket_desc , client_sock , c , read_size;
 	struct sockaddr_in server , client;
@@ -49,7 +50,6 @@ int main(int argc, char* argv[]){
 	char tmppid_str[10], proc_daemon[50];
 	int complete_to_daemon=0;
 	//parse arguments
-	printf("KudosJudge 0.1\n");
 	if(argc==1){
 		printf("Usage : %s\n",usage_str);
 		exit(0);
@@ -63,6 +63,10 @@ int main(int argc, char* argv[]){
 			action= DAEMON_ACTION_STOP;
 		else if(strcmp(action_str,"state")==0)
 			action=DAEMON_ACTION_STATE;
+		else if(strcmp(action_str,"-v")==0){
+			printf("KudosJudge 0.1\n");
+			exit(0);
+		}
 		else{
 			printf("%s : Unknown action\n",action_str);
 			exit(0);
@@ -187,21 +191,17 @@ int main(int argc, char* argv[]){
 	openlog("kudosd", LOG_PID|LOG_CONS, LOG_USER);
 	//daemonize
 	error=kjd_daemonize();
-
 	//redirect stderr debug to
 	char stderr_tmpfile[40];
+	char stdout_tmpfile[40];
 	sprintf(stderr_tmpfile,"/tmp/kudosd-stderr-%d",getpid());
+	sprintf(stdout_tmpfile,"/tmp/kudosd-stdout-%d",getpid());
 	freopen(stderr_tmpfile,"w+",stderr);
+	//freopen(stdout_tmpfile,"w+",stdout);
+
 	////////////////////////
 	///////init sandbox////
 	//////////////////////
-	//check env variables
-	char* jug_path=getenv("JUG_ROOT");
-	if(!jug_path){
-		kjd_log("JUG_ROOT environment variable must be set to the path of the jug installation");
-		return -889;
-	}
-	//start
 	error=jug_sandbox_start();
 	if(error<0){
 		kjd_log("Sandbox not started");
@@ -377,17 +377,4 @@ void kjd_exit(int status,char* syslog_msg){
 	exit(status);
 }
 
-/**
- * void kjd_log(char* msg)
- */
-void kjd_log( char* message,...){
 
-	char* dbg_msg=(char*)malloc(strlen(message)+120);
-	va_list args;
-	va_start(args,message);
-	vsprintf(dbg_msg,message,args);
-	va_end(args);
-	//
-
-	syslog(LOG_INFO, "%s\n",dbg_msg);
-}

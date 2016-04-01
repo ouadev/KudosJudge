@@ -31,6 +31,7 @@ typedef struct int_request{
 			//initContestMode (to load testcases and stuff), judgeSubmission, getState (used also to get the verdict)
 	int synchronous; //<wether the client wishes to wait for the verdict or not, otherwise he will use getState afterward.
 	//for debugging
+	int id; ///< this ID is provided by the client to be able to follow the state of a submission, (useful when synchronous is off)
 	char path[50]; ///< path to execute (inside ERFS if activated)
 	char tc_in_path[100]; ///< path outside ERFS
 	char tc_out_path[100]; ///< path outside ERFS

@@ -81,7 +81,6 @@ typedef enum{
  */
 struct sandbox{
 	//parameters
-	int use_ERFS;		/// whether to use EXecution Root File System
 	char* chroot_dir;	 ///< path to the root fs to use (to chroot into)
 	int use_cgroups; 	///< wether to use cgroups;
 	int use_setrlimit;	///< wether to use setrlimit : resources limit in linux.
@@ -336,6 +335,6 @@ void jug_sandbox_template_freeccp(struct clone_child_params* ccp);
  * @description takes a submission as a parameter and try to judge it.
  * @note	in future we will need to add compiling layer.
  */
-jug_verdict_enum jug_sandbox_judge(jug_submission* submission,struct sandbox* sbox);
+jug_verdict_enum jug_sandbox_judge(jug_submission* submission);
 
 #endif

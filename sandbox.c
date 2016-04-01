@@ -31,11 +31,9 @@
  */
 int jug_sandbox_start(){
 	int ret;
-
 	//init sandbox
 	global_sandbox=(struct sandbox* )malloc(sizeof(struct sandbox));
 	ret=jug_sandbox_init(global_sandbox);
-
 	if(ret){
 		debugt("sandbox_start","cannot init the sandbox");
 		return -1;
@@ -68,9 +66,9 @@ int jug_sandbox_stop(){
  * entry function, may changed in the future after add compiling layer
  * (code for experiment only, many hardcoded stuff)
  */
-jug_verdict_enum jug_sandbox_judge(jug_submission* submission,struct sandbox* sbox){
+jug_verdict_enum jug_sandbox_judge(jug_submission* submission){
 
-	//return VERDICT_COMPILE_ERROR;
+
 	//////////////////////////////////
 	pid_t pid,c_pid;
 	int ret,status;
@@ -82,7 +80,7 @@ jug_verdict_enum jug_sandbox_judge(jug_submission* submission,struct sandbox* sb
 
 	if(infd==-1 || rightfd==-1){
 		debugt("sandbox","%s", get_current_dir_name());
-		debugt("sandbox","infd (%d) or rightfd (%d) invalid : %s", infd, rightfd, strerror(errno) );
+		debugt("sandbx","infd (%d) or rightfd (%d) invalid : %s", infd, rightfd, strerror(errno) );
 		return VERDICT_OUTPUTLIMIT;
 	}
 	//change the config.ini default parameters with your own stuff
@@ -100,14 +98,12 @@ jug_verdict_enum jug_sandbox_judge(jug_submission* submission,struct sandbox* sb
 	args[0]=(char*)malloc(99);
 	strcpy(args[0],submission->source);
 	args[1]=NULL;
-	//run_tpl
-	ret=jug_sandbox_run_tpl(&runp,sbox,args[0],args,submission->thread_id);
+	ret=jug_sandbox_run_tpl(&runp,global_sandbox,args[0],args,submission->thread_id);
 
 	close(infd);
 	close(rightfd);
 	//some error duting running
 	if(ret!=0){
-		//kjd_log("run_tpl ret=%d",ret);
 		return VERDICT_INTERNAL;
 	}
 	//process sandbox result
@@ -457,15 +453,8 @@ int jug_sandbox_run_tpl(
 	//serialize
 	void* serial;
 	int serial_len=jug_sandbox_template_serialize(&serial,ccp);
-
-	//debug
-
-
-	//CLONE BY TEMPLATE PROCESS////////////
+	//clone request
 	watcher_pid=jug_sandbox_template_clone(serial,serial_len);
-	/////////////////////////////////
-
-
 	run_params_struct->watcher_pid=watcher_pid;
 	//free memory
 	free(serial);
@@ -642,14 +631,11 @@ int jug_sandbox_run_tpl(
 	//end while (we're done)
 	//fflush(stderr);
 	//fflush(stdout);
-
-
 	if(spawn_succeeded){
 		if(watcher_result==JS_CORRECT){
 			result=comp_result;
 		}
 		else result=watcher_result;
-		debugt("run_tpl","[worker %d] Watcher result : %s",run_params_struct->thread_order,jug_sandbox_result_str(watcher_result));
 		debugt("run_tpl","[worker %d] Judging result : %s",run_params_struct->thread_order,jug_sandbox_result_str(result));
 	}
 
@@ -667,7 +653,7 @@ int jug_sandbox_run_tpl(
 	free(ccp);
 
 
-	kjd_log("run_tpl here :)");
+
 	return 0;
 
 
@@ -685,6 +671,9 @@ int jug_sandbox_child(void* arg){
 	int fail=0;
 	//
 	debugt("watcher","Starting...");
+
+
+	//exit(JS_OUTPUTLIMIT);
 	//
 	struct clone_child_params* ccp=(struct clone_child_params*)arg;
 
@@ -700,25 +689,18 @@ int jug_sandbox_child(void* arg){
 	}
 
 	//chrooting
-	if(ccp->sandbox_struct->use_ERFS)
-	{
-		char wd[100];
-		fail=chdir(ccp->sandbox_struct->chroot_dir);
-		if(fail){
-			debugt("jug_sandbox_child","chdir() failed, dir:%s",ccp->sandbox_struct->chroot_dir);
-			exit(-2);
-		}
-
-		fail= chroot(".");
-		if( fail){
-			debugt("jug_sandbox_child","error chrooting, linux error : %s\n",strerror(errno));
-			exit(-3);
-		}
-	}else{
-		debugt("Running without ERFS mode");
-		chdir("/");
+	char wd[100];
+	fail=chdir(ccp->sandbox_struct->chroot_dir);
+	if(fail){
+		debugt("jug_sandbox_child","chdir() failed, dir:%s",ccp->sandbox_struct->chroot_dir);
+		exit(-2);
 	}
 
+	fail= chroot(".");
+	if( fail){
+		debugt("jug_sandbox_child","error chrooting, linux error : %s\n",strerror(errno));
+		exit(-3);
+	}
 
 	//remount the proc so it prints the new stuff (CLONE_NEWPID to work)
 	//the clone CLONE_NEWNS makes it possible that each submission has its own mount points
@@ -730,7 +712,7 @@ int jug_sandbox_child(void* arg){
 	}
 	fail= mount("none","/proc","proc",MS_RDONLY,NULL);
 	if(fail){
-		debugt("watcher","error remounting sandbox /proc, linux error : %s\n",strerror(errno));
+		debugt("jug_sandbox_child","error remounting sandbox /proc, linux error : %s\n",strerror(errno));
 		exit(-4);
 	}
 	//remount the /tmp directory, each submission sees its own stuff
@@ -755,9 +737,9 @@ int jug_sandbox_child(void* arg){
 	while (1){
 		fail=dup2(ccp->run_params_struct->out_pipe[1],STDOUT_FILENO);
 		if(fail==-1){
-			debugt("jug_sandbox_child","cannot dup2 the output of the pipe : %s",strerror(errno));
+			debugt("watcher","cannot dup2 the output of the pipe : %s",strerror(errno));
 			if(errno==EINTR)
-				debugt("jug_sandbox_child","interruption");
+				debugt("watcher","interruption");
 			else return -5;
 		}else break;
 	}
@@ -771,7 +753,8 @@ int jug_sandbox_child(void* arg){
 		dup2(ccp->run_params_struct->in_pipe[0],STDIN_FILENO);
 	}
 
-
+	//the watcher won't and shouldn't use them
+	//(close() only releases the file descriptor number and not the resource behind)
 	close(ccp->run_params_struct->out_pipe[0]);
 	close(ccp->run_params_struct->out_pipe[1]);
 	close(ccp->run_params_struct->in_pipe[0]);
@@ -823,7 +806,7 @@ int jug_sandbox_child(void* arg){
 				if( (stop_sig==SIGTRAP) && (estatus & (PTRACE_EVENT_EXIT<<8))){
 					mem_used=jug_sandbox_memory_usage(binary_pid);
 					int cputime_used=jug_sandbox_cputime_usage(binary_pid);
-					debugt("watcher","before exit check : mem:%ldB\tcputime:%ldms",mem_used,cputime_used);
+					debugt("watcher","before exit check : mem:%ldMB\tcputime:%ldms",mem_used/1000000,cputime_used);
 					if(mem_used>0 && (mem_used/1000000) > ccp->run_params_struct->mem_limit_mb){
 						debugt("watcher","out of allowed memory");
 						mem_limit_exceeded=1;
@@ -963,7 +946,7 @@ int jug_sandbox_child(void* arg){
 
 	fail=setuid(pwd_nobody->pw_uid);
 	if(fail){
-		printf("fail setuid, exiting ...");
+		debugt("jug_sandbox_child","fail setuid, exiting ...");
 		exit(112);
 	}
 
@@ -982,7 +965,6 @@ int jug_sandbox_child(void* arg){
 	char* sandbox_envs[2]={
 			"MESSAGE=Nice, you got here? send me ENV to ouadimjamal@gmail.com",
 			NULL};
-
 
 
 	ccp->argv[0]="/KudosBinary";
@@ -1005,8 +987,6 @@ int jug_sandbox_init(struct sandbox* sandbox_struct){
 	int error;
 	struct sandbox* sb=sandbox_struct;
 	char* value;
-	//check env variabl
-	char* jug_path=getenv("JUG_ROOT");
 	//add stack_size
 	//mem limit mb
 	if( (value=jug_get_config("Executer","mem_limit_mb") )==NULL ){
@@ -1071,18 +1051,11 @@ int jug_sandbox_init(struct sandbox* sandbox_struct){
 		return -1;
 	}
 	sb->show_submission_output= atoi(value);
-
-	//whether to use EXecution Root File System to run submissions inside.
-	if( (value=jug_get_config("Executer","use_ERFS") )==NULL ){
-		debugt("sandbox","cannot read use_ERFS config");
-		return -1;
-	}
-	sb->use_ERFS= atoi(value);
 	//fill sandbox's state
 	sb->nbr_instances=0;
 
 	//check if cgroup filesystem is properly mounted
-	if(sb->use_cgroups){
+//	if(sb->use_cgroups){
 //		error=cgroup_init();
 //		if(error){
 //			debugt("sandbox_init",cgroup_strerror(error));
@@ -1112,7 +1085,7 @@ int jug_sandbox_init(struct sandbox* sandbox_struct){
 //		}
 //		//cgroup created
 //		sb->sandbox_cgroup=sandbox_cgroup;
-	}
+//	}
 	//check the sandbox root env.
 	struct stat st={0};
 	error=stat("/tmp",&st);
@@ -1216,11 +1189,13 @@ void jug_sandbox_template_sighandler(int sig){
 		debugt("js_tpl_sighandler","cannot read tx data from caller, read=%d",rd);
 		sprintf(pipe_buf,"%d",-1);
 		write(template_pipe_rx[PIPE_WRITETO],pipe_buf,strlen(pipe_buf)+1);
+		free(tx_buf);
 		return ;
 	}
 
 	//unserialize
 	struct clone_child_params* ccp=jug_sandbox_template_unserialize(tx_buf);
+	free(tx_buf);
 	//experiment: route the in/out pipes through already threading established pipes
 	//	_thread_order=ccp->run_params_struct->thread_order;
 	//	for(i=0;i<2;i++){
@@ -1242,11 +1217,10 @@ void jug_sandbox_template_sighandler(int sig){
 	cloned_stacktop+=STACK_SIZE;
 
 	int JUG_CLONE_SANDBOX=CLONE_NEWUTS|CLONE_NEWNET|CLONE_NEWPID|CLONE_NEWNS;
-
-	/////ACTUAL CLONING
 	cloned_pid=clone(jug_sandbox_child,cloned_stacktop,JUG_CLONE_SANDBOX|CLONE_PARENT|SIGCHLD,(void*)ccp);
-	//////////
-
+	//free first
+	free(cloned_stack);
+	jug_sandbox_template_freeccp(ccp);
 
 	if(cloned_pid==-1){
 		debugt("js_tpl_sighandler","cannot clone: %s",strerror(errno));
@@ -1257,9 +1231,7 @@ void jug_sandbox_template_sighandler(int sig){
 		write(template_pipe_rx[PIPE_WRITETO],pipe_buf,strlen(pipe_buf)+1);
 	}
 
-	free(cloned_stack);
-	free(tx_buf);
-	jug_sandbox_template_freeccp(ccp);
+
 	return;
 
 }
@@ -1468,7 +1440,7 @@ void jug_sandbox_template_freeccp(struct clone_child_params* ccp){
 //	return 0;
 //
 //}
-
+//
 
 
 

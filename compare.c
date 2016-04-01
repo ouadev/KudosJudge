@@ -1,8 +1,8 @@
 #include "compare.h"
 
 
-//compare()
-int compare_output(int fd_out_ref,char* rx,int size,int stage){
+//compare_internal()
+int __compare_output(int fd_out_ref,char* rx,int size,int stage){
 	/////////
 	int d=0,i,j,rd=0,rd2=0,read_plus=0,goback=0,dec=0;
 	char* tmprx=rx;
@@ -78,3 +78,17 @@ int compare_output(int fd_out_ref,char* rx,int size,int stage){
 
 	return 0;
 }
+
+
+
+
+int compare_output(int fd_out_ref,char* rx,int size,int stage){
+	int ret=__compare_output(fd_out_ref,rx,size,stage);
+	debugt("compare","size:%d\tstage=%d\tcomp=%d\tmsg:",size,stage,ret);
+	debug_fnprintf(stderr,rx,size);
+	return ret;
+}
+
+
+
+

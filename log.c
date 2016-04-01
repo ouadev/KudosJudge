@@ -1,10 +1,4 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-#include <stdarg.h>
-#include <unistd.h>
-#include <string.h>
+
 #include "log.h"
 
 
@@ -41,6 +35,7 @@ void debugll(char*message,...){
 	va_end(args);
 	sprintf(dbg_msg,"%s : (%d,%s)",dbg_msg,errno,linux_error);
 	fprintf(stderr,"+ %s\n",dbg_msg);
+	free(dbg_msg);
 }
 
 void debugt(char*tag,char*message,...){
@@ -67,6 +62,7 @@ void debugt(char*tag,char*message,...){
 
 	fprintf(stderr, "+ %s: %s\n",tag,dbg_msg);
 	fflush(stderr);
+	free(dbg_msg);
 }
 
 
@@ -80,6 +76,15 @@ void print_bytes(char*buffer,int len){
 
 	}
 	fprintf(stderr,"\n");
+}
+
+
+void debug_fnprintf(FILE* where,char* buffer, int len){
+	int i;
+	for(i=0;i<len;i++){
+		fprintf(where,"%c",buffer [i]);
+	}
+	fprintf(where,"\n");
 }
 
 
@@ -106,9 +111,28 @@ void print_focus_tags(){
 	int i=0;
 	while(_focus_tags[i][0]!='\0' && i<10){
 
-		printf("Focus On: [%s]\n",_focus_tags[i]);
+		fprintf(stderr,"Focus On: [%s]\n",_focus_tags[i]);
 		i++;
 	}
+}
+
+
+
+/**
+ * log to syslog device. (useful for daemon stuff)
+ *
+ * void kjd_log(char* msg)
+ */
+void kjd_log( char* message,...){
+
+	char* dbg_msg=(char*)malloc(strlen(message)+120);
+	va_list args;
+	va_start(args,message);
+	vsprintf(dbg_msg,message,args);
+	va_end(args);
+	//
+
+	syslog(LOG_INFO, "%s\n",dbg_msg);
 }
 
 

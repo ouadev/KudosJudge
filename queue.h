@@ -8,14 +8,13 @@
 
 #ifndef H_JUG_QUEUE
 #define H_JUG_QUEUE
+#include <stdarg.h>
 #include <pthread.h>
 #include <semaphore.h>
 #include <time.h>
 #include "config.h"
 #include "interface.h"
 #include "protocol.h"
-#include "sandbox.h"
-
 
 #define DEBUG_THREADING 1
 #define MAX_DEBUG_THREAD_STATES_COUNT 10000
@@ -107,30 +106,39 @@ int queue_worker_id();
 /**
  * state of the thread
  */
-typedef struct debug_thread_state
+typedef struct thread_debug_state
 {
 	int thread_id;
 	int state;
 	time_t time;
-	char* msg;
-}debug_thread_state;
+	char msg[300]; //to avoid memory management overhead.
+}thread_debug_state;
 /**
  * globals
  */
-enum {THREAD_CREATED,THREAD_STARTED,THREAD_WORKING,THREAD_WAITING,THREAD_WAKED_UP,THREAD_STATE_COUNT};
-extern char* debug_thread_state_names[THREAD_STATE_COUNT];
-extern debug_thread_state debug_thread_states[MAX_DEBUG_THREAD_STATES_COUNT];
-extern int debug_thread_states_count;
+enum {THREAD_CREATED,
+	THREAD_STARTED,
+	THREAD_WORKING,
+	THREAD_WAITING,
+	THREAD_WAKED_UP,
+	THREAD_FINISH,
+	THREAD_STATE_COUNT};
+
+
+
+/**
+ * thread_debug_snapshot()
+ */
+void thread_debug_snapshot(int state, char* format, ...);
 /**
  * get time
  */
 time_t thread_debug_get_time();
 
-
 /**
  * @desc push a state
  */
-void thread_debug_push(debug_thread_state s);
+void thread_debug_push(thread_debug_state s);
 
 /**
  * @desc print the result of thread debugging
