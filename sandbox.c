@@ -98,7 +98,12 @@ jug_verdict_enum jug_sandbox_judge(jug_submission* submission){
 	args[0]=(char*)malloc(99);
 	strcpy(args[0],submission->source);
 	args[1]=NULL;
+
+
+	//RUN
 	ret=jug_sandbox_run_tpl(&runp,global_sandbox,args[0],args,submission->thread_id);
+	////////////
+
 
 	close(infd);
 	close(rightfd);
@@ -454,8 +459,17 @@ int jug_sandbox_run_tpl(
 	void* serial;
 	int serial_len=jug_sandbox_template_serialize(&serial,ccp);
 	//clone request
+
+
+	//ASK TEMPLATE TO CLONE
 	watcher_pid=jug_sandbox_template_clone(serial,serial_len);
+	////////
+
+
+
 	run_params_struct->watcher_pid=watcher_pid;
+
+
 	//free memory
 	free(serial);
 	if(watcher_pid==-1){
@@ -463,6 +477,11 @@ int jug_sandbox_run_tpl(
 		return -2;
 	}
 
+	//FIXME:TEST-UNIT (get out without waiting for outpur from cloned watcher)
+	debugt("testunit","watcher_id: %d",watcher_pid);
+	run_params_struct->result=JS_WRONG;;
+	return 0;
+	//TEST-UNIT
 
 
 	/*
@@ -1121,15 +1140,27 @@ int jug_sandbox_template_init(){
 		}
 
 	}
+
+		//non blockin
+	if(pipe2(template_pipe_rx, 0)==-1){
+				debugt("js_template_init","cannot init template_pipe_tx: %s",strerror(errno));
+				return -3;
+			}
+
 	//template process communication channel
-	if(pipe(template_pipe_rx)==-1){
+	if(pipe2(template_pipe_tx, 0)==-1){
 		debugt("js_template_init","cannot init template_pipe_rx: %s",strerror(errno));
 		return -3;
 	}
-	if(pipe(template_pipe_tx)==-1){
-		debugt("js_template_init","cannot init template_pipe_tx: %s",strerror(errno));
-		return -3;
-	}
+
+
+	//non blocking
+//	 flags=fcntl(template_pipe_tx[PIPE_WRITETO],F_GETFL,0);
+//		fcntl(template_pipe_tx[PIPE_WRITETO],F_SETFL,flags|O_NONBLOCK);
+
+
+	//init mutex
+
 	pthread_mutex_init(&template_pipe_mutex, NULL);
 	//
 	//clone
@@ -1151,8 +1182,9 @@ int jug_sandbox_template_init(){
 	//		close(io_pipes_in[i][PIPE_READFROM]);
 	//		close(io_pipes_out[i][PIPE_WRITETO]);
 	//	}
-	close(template_pipe_rx[PIPE_WRITETO]);
-	close(template_pipe_tx[PIPE_READFROM]);
+	/*close(template_pipe_rx[PIPE_WRITETO]);*/
+//	close(template_pipe_tx[PIPE_READFROM]);
+//	close(template_pipe_rx[PIPE_READFROM]);
 	free(tpl_stack);
 	debugt("js_template_init","template process launched, pid=%d",template_pid);
 	return 0;
@@ -1163,12 +1195,13 @@ int jug_sandbox_template_init(){
 //
 int jug_sandbox_template(void*arg){
 	signal(SIGUSR1,jug_sandbox_template_sighandler);
-	close(template_pipe_rx[PIPE_READFROM]);
-	close(template_pipe_tx[PIPE_WRITETO]);
-
+	/*close(template_pipe_rx[PIPE_READFROM]);*/
+	//close(template_pipe_tx[PIPE_WRITETO]);
+//	close(template_pipe_rx[PIPE_WRITETO]);
+	int thispid=getpid();
 	while(1){
 		sleep(10);
-		debugt("template","UP");
+		debugt("template","UP (%d)", thispid);
 	}
 	return 0;
 }
@@ -1185,12 +1218,16 @@ int jug_sandbox_child_tpl(void* arg){
 
 // jug_sandbox_template_sighandler (\\[template_process:sighandler])
 void jug_sandbox_template_sighandler(int sig){
+
 	debugt("js_tpl_sighandler","sig received : %d",sig);
 	if(sig!=SIGUSR1) return;
 	//
-	char pipe_buf[8];
+	char pipe_buf[50];
 	pid_t cloned_pid;
 	int rd,i, _thread_order;
+
+
+
 	unsigned char* tx_buf=(unsigned char*)malloc(TEMPLATE_MAX_TX*sizeof(unsigned char) );
 	//read void*arg from the pipe
 	rd=read(template_pipe_tx[PIPE_READFROM],tx_buf,TEMPLATE_MAX_TX);
@@ -1205,12 +1242,29 @@ void jug_sandbox_template_sighandler(int sig){
 	//unserialize
 	struct clone_child_params* ccp=jug_sandbox_template_unserialize(tx_buf);
 	free(tx_buf);
+
+
+	//FIXME:TEST-UNIT (communicate back with the thread without cloning the watcher)
+	sprintf(pipe_buf, "%d", 12345);;
+	int wr=write(template_pipe_tx[PIPE_WRITETO],pipe_buf, strlen(pipe_buf)+1);
+	if(wr==-1 && errno==EAGAIN){
+		debugt("testunit","IO BLOCK WRITE template_pipe_rx");
+	}
+	return ;
+	///////testunit
+
 	//experiment: route the in/out pipes through already threading established pipes
 	//	_thread_order=ccp->run_params_struct->thread_order;
 	//	for(i=0;i<2;i++){
 	//		ccp->run_params_struct->out_pipe[i]=io_pipes_out[_thread_order][i];
 	//		ccp->run_params_struct->in_pipe[i]=io_pipes_in[_thread_order][i];
 	//	}
+
+	//
+
+	//TEST-UNIT
+
+
 	//clone preparation
 	char* cloned_stack;
 	char *cloned_stacktop;
@@ -1226,7 +1280,13 @@ void jug_sandbox_template_sighandler(int sig){
 	cloned_stacktop+=STACK_SIZE;
 
 	int JUG_CLONE_SANDBOX=CLONE_NEWUTS|CLONE_NEWNET|CLONE_NEWPID|CLONE_NEWNS;
+
+
+	//CLONE TO THE WATCHER
 	cloned_pid=clone(jug_sandbox_child,cloned_stacktop,JUG_CLONE_SANDBOX|CLONE_PARENT|SIGCHLD,(void*)ccp);
+	///////////
+
+
 	//free first
 	free(cloned_stack);
 	jug_sandbox_template_freeccp(ccp);
@@ -1247,22 +1307,24 @@ void jug_sandbox_template_sighandler(int sig){
 
 // jug_sandbox_template_clone (\\[main_process/some_thread])
 pid_t jug_sandbox_template_clone(void*arg, int len){
+	debugt("testunit","template_clone");
 	if(template_pid<0){
 		debugt("tpl_clone","template_pid<0");
 		return (pid_t)-1;
 	}
 	//decl
-	char pipe_buf[8];
+	char pipe_buf[500];
 	int is_read=1,wr=0;
 	struct timeval pipe_read_timeout;
 	fd_set _set;
 	int slct;
 	pid_t pid;
 	//
-	pipe_read_timeout.tv_sec=2;
+	pipe_read_timeout.tv_sec=20;
 	pipe_read_timeout.tv_usec=0;
 	FD_ZERO(&_set);
-	FD_SET(template_pipe_rx[PIPE_READFROM],&_set);
+	//FD_SET(template_pipe_rx[PIPE_READFROM],&_set);
+
 	pthread_mutex_lock(&template_pipe_mutex);
 	//eat all previous data (must use select to control timeout)
 	//read(template_pipe_rx[PIPE_READFROM],pipe_buf,255);
@@ -1271,10 +1333,26 @@ pid_t jug_sandbox_template_clone(void*arg, int len){
 		pthread_mutex_unlock(&template_pipe_mutex);
 		return (pid_t)-1;
 	}
-	//write the file-descriptor
 
-	//write void*arg
+
+	//write the file-description
 	wr=write(template_pipe_tx[PIPE_WRITETO],arg,len);
+	if(wr==-1 && errno==EAGAIN){
+		debugt("testunit","IO would block, getting out");
+		pthread_mutex_unlock(&template_pipe_mutex);
+		return 999;
+	}
+	debugt("testunit","arguments written : %d, sizeof: %d",wr, len );
+
+	//FIXME:TESTUNIT2 (read the returned data)
+	is_read=read(template_pipe_tx[PIPE_READFROM],pipe_buf,255);
+	debugt("testunit","read from template: %d",is_read);
+	if(is_read==-1){
+		debugt("testunit"," is_read==-1 (%s)", strerror(errno) );
+	}
+	pthread_mutex_unlock(&template_pipe_mutex);
+	return 666;
+	//TESTUNIT
 	//debugt("js_template_clone","void*arg written,len=%d,wr=%d",len,wr);
 	//read my data
 	slct=select(template_pipe_rx[PIPE_READFROM]+1,&_set,NULL,NULL,&pipe_read_timeout);
@@ -1282,6 +1360,9 @@ pid_t jug_sandbox_template_clone(void*arg, int len){
 		is_read=read(template_pipe_rx[PIPE_READFROM],pipe_buf,255);
 	}
 	pthread_mutex_unlock(&template_pipe_mutex);
+
+
+
 	if(slct<0){
 		debugt("tpl_clone","error select");
 		return (pid_t)-1;

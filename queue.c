@@ -172,8 +172,8 @@ void queue_worker_serv(jug_connection* connection)
 	submission.thread_id=queue_worker_id();
 
 	// SEND TO THE SANDBOX
-//	verdict=jug_sandbox_judge(&submission);
-	verdict=VERDICT_ACCEPTED;
+	verdict=jug_sandbox_judge(&submission);
+//	verdict=VERDICT_ACCEPTED;
 
 	free(submission.input_filename);
 	free(submission.output_filename);
@@ -250,9 +250,14 @@ void* queue_worker_main(void* data)
 #endif
 
 			queue_worker_serv(connection);
+#if DEBUG_THREADING
 			thread_debug_snapshot(THREAD_FINISH,"");
+#endif
+
+#if DEBUG_THREADING
 			//print thread_debug
 			thread_debug_print();
+#endif
 
 		}
 	}

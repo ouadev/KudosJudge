@@ -1,0 +1,18 @@
++ threding isolated (tested till 10 workers)							OK
++ template communication, signal sending data exchange					IN PROGESS
+		+ send signal and quit (agressive)								OK
+		+ data exchange (without cloning), serialization				IN PROGRESS
+			+ full exchange works only with one pipe,
++ template launching the Watcher
+		+ watcher exits after launch 
+
++ template's launched watcher : communication and waiting
+		+ watcher write some stuff to stdout and exit (no comp)
+		+ watcher write stuff to stdout and exit (with comp)
+		+ sandbox stuff
++ watcher clones the binary
+
+
+
+
+PS: restest the ~3 previous tests with IO errors in mind

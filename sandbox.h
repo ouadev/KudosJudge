@@ -157,9 +157,9 @@ js_bin_state binary_state;
 ///< The pid of the template process, accessed only for read.
 int template_pid;
 ///< pipe used to retreive the pid of the cloned process by the template.
-int template_pipe_rx[2];
-///< pipe used to send (void*arg) argument of clone(2) to the template process
 int template_pipe_tx[2];
+///< pipe used to send (void*arg) argument of clone(2) to the template process
+int template_pipe_rx[2];
 ///< a mutex to use for concurrent access to the template process's pipe;
 pthread_mutex_t template_pipe_mutex;
 ///< pool of pipes, each calling thread uses one. the same meaning as normal mode
