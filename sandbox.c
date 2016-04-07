@@ -1142,13 +1142,15 @@ int jug_sandbox_template_init(){
 	}
 
 		//non blockin
-	if(pipe2(template_pipe_rx, 0)==-1){
+	if(pipe(template_pipe_rx)==-1){
 				debugt("js_template_init","cannot init template_pipe_tx: %s",strerror(errno));
 				return -3;
 			}
-
+	//non-blocking read from _rx
+	int flags=fcntl(template_pipe_rx[PIPE_READFROM],F_GETFL,0);
+	fcntl(template_pipe_rx[PIPE_READFROM],F_SETFL,flags|O_NONBLOCK);
 	//template process communication channel
-	if(pipe2(template_pipe_tx, 0)==-1){
+	if(pipe(template_pipe_tx)==-1){
 		debugt("js_template_init","cannot init template_pipe_rx: %s",strerror(errno));
 		return -3;
 	}
@@ -1183,8 +1185,8 @@ int jug_sandbox_template_init(){
 	//		close(io_pipes_out[i][PIPE_WRITETO]);
 	//	}
 	/*close(template_pipe_rx[PIPE_WRITETO]);*/
-//	close(template_pipe_tx[PIPE_READFROM]);
-//	close(template_pipe_rx[PIPE_READFROM]);
+	close(template_pipe_tx[PIPE_READFROM]);
+	close(template_pipe_rx[PIPE_WRITETO]);
 	free(tpl_stack);
 	debugt("js_template_init","template process launched, pid=%d",template_pid);
 	return 0;
@@ -1195,13 +1197,25 @@ int jug_sandbox_template_init(){
 //
 int jug_sandbox_template(void*arg){
 	signal(SIGUSR1,jug_sandbox_template_sighandler);
-	/*close(template_pipe_rx[PIPE_READFROM]);*/
-	//close(template_pipe_tx[PIPE_WRITETO]);
-//	close(template_pipe_rx[PIPE_WRITETO]);
+	close(template_pipe_rx[PIPE_READFROM]);
+	close(template_pipe_tx[PIPE_WRITETO]);
+	//	close(template_pipe_rx[PIPE_WRITETO]);
+	char buf[50];
+	int up=1;
+	//
+	sprintf(buf,"SSSSSSS");
+	int wr=write(template_pipe_rx[PIPE_WRITETO],buf,strlen(buf)+1);
+	debugt("template","sync sent : %d",wr);
+	if(wr==-1) up=0;
 	int thispid=getpid();
+	//event loop
 	while(1){
-		sleep(10);
-		debugt("template","UP (%d)", thispid);
+
+		if(up)
+			debugt("template","UP (%d)", thispid);
+		else debugt("template","DOWN (%d)",thispid);
+		//sleep a little
+		sleep(8	);
 	}
 	return 0;
 }
@@ -1225,11 +1239,19 @@ void jug_sandbox_template_sighandler(int sig){
 	char pipe_buf[50];
 	pid_t cloned_pid;
 	int rd,i, _thread_order;
-
-
+	int wr;
 
 	unsigned char* tx_buf=(unsigned char*)malloc(TEMPLATE_MAX_TX*sizeof(unsigned char) );
-	//read void*arg from the pipe
+	//SEND READY MSG
+	sprintf(pipe_buf,"READY");
+	wr=write(template_pipe_rx[PIPE_WRITETO],pipe_buf, strlen(pipe_buf)+1);
+	if(wr==-1){
+		debugt("template","DOWN");
+		free(tx_buf);
+		return;
+	}
+	//READ SUBMISSION DATA (arg)
+
 	rd=read(template_pipe_tx[PIPE_READFROM],tx_buf,TEMPLATE_MAX_TX);
 	if(rd<=0){
 		debugt("js_tpl_sighandler","cannot read tx data from caller, read=%d",rd);
@@ -1243,14 +1265,25 @@ void jug_sandbox_template_sighandler(int sig){
 	struct clone_child_params* ccp=jug_sandbox_template_unserialize(tx_buf);
 	free(tx_buf);
 
-
 	//FIXME:TEST-UNIT (communicate back with the thread without cloning the watcher)
-	sprintf(pipe_buf, "%d", 12345);;
-	int wr=write(template_pipe_tx[PIPE_WRITETO],pipe_buf, strlen(pipe_buf)+1);
-	if(wr==-1 && errno==EAGAIN){
-		debugt("testunit","IO BLOCK WRITE template_pipe_rx");
+	sprintf(pipe_buf, "%d", 12345);
+	wr=write(template_pipe_rx[PIPE_WRITETO],pipe_buf, strlen(pipe_buf)+1);
+	if(wr==-1){
+		debugt("template","DOWN");
+		free(tx_buf);
+		return;
 	}
-	return ;
+	//SEND SYNC CHARS
+	sprintf(pipe_buf,"SSSSSSS");
+	wr=write(template_pipe_rx[PIPE_WRITETO],pipe_buf,strlen(pipe_buf)+1);
+	if(wr==-1){
+		debugt("template","DOWN");
+		free(tx_buf);
+		return;
+	}
+	//exit without cloning
+	return;
+	//
 	///////testunit
 
 	//experiment: route the in/out pipes through already threading established pipes
@@ -1280,12 +1313,9 @@ void jug_sandbox_template_sighandler(int sig){
 	cloned_stacktop+=STACK_SIZE;
 
 	int JUG_CLONE_SANDBOX=CLONE_NEWUTS|CLONE_NEWNET|CLONE_NEWPID|CLONE_NEWNS;
-
-
 	//CLONE TO THE WATCHER
 	cloned_pid=clone(jug_sandbox_child,cloned_stacktop,JUG_CLONE_SANDBOX|CLONE_PARENT|SIGCHLD,(void*)ccp);
 	///////////
-
 
 	//free first
 	free(cloned_stack);
@@ -1296,6 +1326,7 @@ void jug_sandbox_template_sighandler(int sig){
 		sprintf(pipe_buf,"%d",-2);
 		write(template_pipe_rx[PIPE_WRITETO],pipe_buf,strlen(pipe_buf)+1);
 	}else{
+		debugt("CLONE","cloned, pid=%d",cloned_pid);
 		sprintf(pipe_buf,"%d",(int)cloned_pid);
 		write(template_pipe_rx[PIPE_WRITETO],pipe_buf,strlen(pipe_buf)+1);
 	}
@@ -1327,39 +1358,80 @@ pid_t jug_sandbox_template_clone(void*arg, int len){
 
 	pthread_mutex_lock(&template_pipe_mutex);
 	//eat all previous data (must use select to control timeout)
-	//read(template_pipe_rx[PIPE_READFROM],pipe_buf,255);
+	//SYNCH CODE
+	debugt("tpl_clone","trying to sync with Template");
+	int i=0;int j=0;int ok=0;
+	while(1){
+		is_read=read(template_pipe_rx[PIPE_READFROM],pipe_buf,8);
+		if(is_read>=8 && strcmp( &pipe_buf[is_read-8], "SSSSSSS")==0) {ok=1;break;}
+		if(i==10000000) break;
+		i++;
+	}
+	if(i==10000000){
+		debugt("tpl_clone","ERROR SYNCHING, cannot read");
+		pthread_mutex_unlock(&template_pipe_mutex);
+		return (pid_t)-1;
+	}
+	if(ok){
+		debugt("tpl_clone","succefully synced with Template");
+	}else{
+		debugt("tpl_clone","ERROR SYNCHING, cannot get magic code");
+		pthread_mutex_unlock(&template_pipe_mutex);
+		return (pid_t)-1;
+	}
+	//SEND KILL
 	if(kill(template_pid,SIGUSR1)==-1){
 		debugt("tpl_clone","cannot deliver SIGUSR1 signal");
 		pthread_mutex_unlock(&template_pipe_mutex);
 		return (pid_t)-1;
 	}
-
-
+	//SYNC CODE 2 : I'm ready signal
+	i=0;is_read=0;pipe_buf[0]='\0';
+	while(1){
+		is_read+=read(template_pipe_rx[PIPE_READFROM],pipe_buf,6);
+		if(is_read==-1 && errno==EAGAIN && is_read==6) break;
+		i++;
+		if(i==1000000) break;//limit
+	}
+	if(strcmp(pipe_buf,"READY")!=0){
+		debugt("tpl_clone","ERROR SYNC : cannot receive READY msg, received : %s, i=%d", pipe_buf,i);
+		pthread_mutex_unlock(&template_pipe_mutex);
+		return (pid_t)-1;
+	}
 	//write the file-description
 	wr=write(template_pipe_tx[PIPE_WRITETO],arg,len);
 	if(wr==-1 && errno==EAGAIN){
 		debugt("testunit","IO would block, getting out");
 		pthread_mutex_unlock(&template_pipe_mutex);
-		return 999;
+		return (pid_t)-1;;
 	}
 	debugt("testunit","arguments written : %d, sizeof: %d",wr, len );
 
 	//FIXME:TESTUNIT2 (read the returned data)
-	is_read=read(template_pipe_tx[PIPE_READFROM],pipe_buf,255);
-	debugt("testunit","read from template: %d",is_read);
-	if(is_read==-1){
-		debugt("testunit"," is_read==-1 (%s)", strerror(errno) );
-	}
-	pthread_mutex_unlock(&template_pipe_mutex);
-	return 666;
-	//TESTUNIT
-	//debugt("js_template_clone","void*arg written,len=%d,wr=%d",len,wr);
-	//read my data
-	slct=select(template_pipe_rx[PIPE_READFROM]+1,&_set,NULL,NULL,&pipe_read_timeout);
-	if(slct>0){
+	i=0;is_read=0;pipe_buf[0]='\0';
+	while(1){
 		is_read=read(template_pipe_rx[PIPE_READFROM],pipe_buf,255);
+		if (is_read>0) debugt("testunit","read from template: %d",is_read);
+		if(is_read==-1 && errno!=EAGAIN){
+			debugt("testunit", "cannot read watcher_id from template : %s", strerror(errno));
+			return (pid_t)-1;
+		}
+		i++;
+		if(i==1000000 || is_read>0) break;//limit
 	}
+	if(is_read==-1 ) debugt("restunit"," couldnt get the watcher_id from Template");
 	pthread_mutex_unlock(&template_pipe_mutex);
+	return (pid_t)atoi(pipe_buf);
+//	return (pid_t)88989;
+	//TESTUNIT
+
+	//TESTUNIT:(commented)
+	//read my data
+//	slct=select(template_pipe_rx[PIPE_READFROM]+1,&_set,NULL,NULL,&pipe_read_timeout);
+//	if(slct>0){
+//		is_read=read(template_pipe_rx[PIPE_READFROM],pipe_buf,255);
+//	}
+//	pthread_mutex_unlock(&template_pipe_mutex);
 
 
 

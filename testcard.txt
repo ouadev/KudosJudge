@@ -2,10 +2,11 @@
 + template communication, signal sending data exchange					IN PROGESS
 		+ send signal and quit (agressive)								OK
 		+ data exchange (without cloning), serialization				IN PROGRESS
-			+ full exchange works only with one pipe,
+			+ one way
+			+ full exchange,											KO (two way pipes hang on multithreading)
 + template launching the Watcher
 		+ watcher exits after launch 
-
++
 + template's launched watcher : communication and waiting
 		+ watcher write some stuff to stdout and exit (no comp)
 		+ watcher write stuff to stdout and exit (with comp)
