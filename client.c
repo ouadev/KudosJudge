@@ -69,6 +69,11 @@ int main(int argc , char *argv[])
 //	//repsonse retreived
 //	printf("echo :%s\n",response.echo);
 
+	//
+	struct timeval tv;
+	tv.tv_sec = 6;  /* 30 Secs Timeout */
+	tv.tv_usec = 0;  // Not init'ing this can cause strange errors
+	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv,sizeof(struct timeval));
 	//receive the verdict
 	if( ( rcv_count=recv(sock,&response, sizeof(int_response),0 ))<0){
 		puts("KudosClient: recv failed");

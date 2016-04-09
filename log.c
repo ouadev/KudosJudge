@@ -39,6 +39,9 @@ void debugll(char*message,...){
 }
 
 void debugt(char*tag,char*message,...){
+//	//fixme: TESTUNIT
+//	return;
+
 	//check focus_tags
 	if(_is_focus_tags){
 		short inside=0,i=0;

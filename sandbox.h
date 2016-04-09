@@ -38,6 +38,9 @@
 #include <sys/time.h>
 #include <sys/sendfile.h>
 
+#include <sys/ipc.h>
+#include <sys/shm.h>
+
 #include "config.h"
 #include "compare.h"
 #include "protocol.h"
@@ -96,6 +99,8 @@ struct sandbox{
 	//sandbox state
 	int nbr_instances;
 	struct cgroup* sandbox_cgroup;
+	int count_submissions;
+	int count_submissions_success;
 
 };
 
@@ -165,6 +170,9 @@ pthread_mutex_t template_pipe_mutex;
 ///< pool of pipes, each calling thread uses one. the same meaning as normal mode
 int io_pipes_out[THREADS_MAX][2];  //retreive from the submission
 int io_pipes_in [THREADS_MAX][2]; //feed the submission
+
+//shared memory
+char* template_shm;
 
 
 /**
