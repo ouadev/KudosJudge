@@ -199,15 +199,7 @@ int main(int argc, char* argv[]){
 	freopen(stderr_tmpfile,"w+",stderr);
 	//freopen(stdout_tmpfile,"w+",stdout);
 
-	////////////////////////
-	///////init sandbox////
-	//////////////////////
-	error=jug_sandbox_start();
-	if(error<0){
-		kjd_log("Sandbox not started");
-		return -556;
-	}
-	kjd_log("Sandbox started");
+
 	///////////////////
 	//init queue /////
 	/////////////////
@@ -217,6 +209,17 @@ int main(int argc, char* argv[]){
 		return -100;
 	}
 	kjd_log("Queue and workers are ready");
+	////////////////////////
+	///////init sandbox////
+	//////////////////////
+	error=jug_sandbox_start();
+	if(error<0){
+		kjd_log("Sandbox not started");
+		return -556;
+	}
+	kjd_log("Sandbox started");
+
+
 
 	/////////////////////
 	//setup tcp server//

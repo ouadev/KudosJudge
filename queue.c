@@ -126,6 +126,12 @@ jug_connection* queue_pop_connection()
 	return result;
 }
 
+/**
+ *
+ */
+int queue_get_workers_count(){
+		return g_num_worker_threads;
+};
 int factor(int x){
 	if(x==0) return 1;
 	return x*factor(x-1);

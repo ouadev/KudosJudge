@@ -86,6 +86,11 @@ void queue_push_connection(jug_connection* connection);
  *
  */
 jug_connection* queue_pop_connection();
+
+/**
+ *
+ */
+int queue_get_workers_count();
 /**
  *
  */

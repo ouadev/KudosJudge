@@ -48,7 +48,7 @@
 
 #define PIPE_WRITETO 1
 #define PIPE_READFROM 0
-#define THREADS_MAX 4 //maximum number of threads, used to create the same number of pipes (template mode)
+#define THREADS_MAX 24 //maximum number of threads, used to create the same number of pipes (template mode)
 #define TEMPLATE_MAX_TX  1024 //1KB
 /**
  * enumeration of the Executer's different returns

@@ -104,6 +104,9 @@ jug_verdict_enum jug_sandbox_judge(jug_submission* submission){
 
 	ret=jug_sandbox_run_tpl(&runp,global_sandbox,args[0],args,submission->thread_id);
 	debugt("judge","ALL:%d,SUCC:%d", global_sandbox->count_submissions, global_sandbox->count_submissions_success);
+	if(ret!=0 || result==JS_COMP_ERROR || result==JS_UNKNOWN){
+		debugt("judge","TESTUNIT-KO");
+	}
 	////////////
 
 
@@ -421,26 +424,6 @@ int jug_sandbox_run_tpl(
 	//check fd_in a fd_out
 	//ps: fd_datasource is a fd to read from, it will be transmitted to Clone by pipe.
 	run_params_struct->fd_datasource_dir=1;
-	//	if( (fd_datasource_flags=fcntl(run_params_struct->fd_datasource,F_GETFD) )<0 ){
-	//		debugt("run_tpl","fd_datasource is not valid");
-	//		return -4;
-	//	}
-	////////
-	//	if((fd_datasource_flags&FD_CLOEXEC) ){
-	//		debugt("run_tpl","fd_datasource is declared close-on-exec");
-	//		return -5;
-	//	}
-	//	fd_datasource_status=fcntl(run_params_struct->fd_datasource,F_GETFL);
-	//
-	//	if( ! (fd_datasource_status&O_RDWR)){//imported from jug_sandbox_run()
-	//		if(  !(fd_datasource_status&O_RDONLY) ){
-	//			debugt("run_tpl","fd_datasource dir 0 is not readible , (%d,%d)",
-	//					fd_datasource_status&O_RDWR,fd_datasource_status&O_RDONLY);
-	//			return -6;
-	//		}
-	//
-	//	}
-
 	////use thread_order to route the submission to the appropriate file descriptor
 	//parent side of multplixing.
 	for(i=0;i<2;i++){
@@ -466,12 +449,7 @@ int jug_sandbox_run_tpl(
 	//ASK TEMPLATE TO CLONE
 	watcher_pid=jug_sandbox_template_clone(serial,serial_len);
 	////////
-
-
-
 	run_params_struct->watcher_pid=watcher_pid;
-
-
 	//free memory
 	free(serial);
 	if(watcher_pid==-1){
@@ -479,11 +457,11 @@ int jug_sandbox_run_tpl(
 		return -2;
 	}
 
-	//FIXME:TEST-UNIT (get out without waiting for outpur from cloned watcher)
-	debugt("testunit","watcher_id: %d",watcher_pid);
-	run_params_struct->result=JS_CORRECT;
-	return 0;
-	//TEST-UNIT
+//	//FIXME:TEST-UNIT (get out without waiting for output from cloned watcher)
+//	debugt("testunit","watcher_id: %d",watcher_pid);
+//	run_params_struct->result=JS_CORRECT;
+//	return 0;
+//	//TEST-UNIT
 
 
 	/*
@@ -514,6 +492,11 @@ int jug_sandbox_run_tpl(
 	flags=fcntl(run_params_struct->in_pipe[PIPE_WRITETO],F_GETFD);
 	if(flags<0){
 		debugt("run_tpl","in_pipe[PIPE_WRITETO] is invalid : %s",strerror(errno));
+		debugt("run_tpl","in_pipe[PIPE_WRITETO]==%d", run_params_struct->in_pipe[PIPE_WRITETO]);
+		int j=0;
+		for(j=0;j<10;j++){
+			debugt("run_tpl","io_pipes_in[%d][PIPE_WRITETO]==%d",j,  io_pipes_in[j][PIPE_WRITETO] );
+		}
 		return -3;
 	}
 	flags=fcntl(run_params_struct->fd_datasource,F_GETFD);
@@ -557,6 +540,12 @@ int jug_sandbox_run_tpl(
 				}
 			}
 		}
+
+		//FIXME: TESTUNIT: no exchange of data between the thread & the watcher.
+		if(watcher_alive==0) break;
+		continue;
+		//TESTUNIT
+
 		//process's available output from the watcher.
 		if(endoffile || compout_detected){
 			if(!watcher_alive)
@@ -657,7 +646,6 @@ int jug_sandbox_run_tpl(
 			result=comp_result;
 		}
 		else result=watcher_result;
-		debugt("run_tpl","[worker %d] Judging result : %s",run_params_struct->thread_order,jug_sandbox_result_str(result));
 	}
 
 	else
@@ -672,8 +660,6 @@ int jug_sandbox_run_tpl(
 	 */
 
 	free(ccp);
-
-
 
 	return 0;
 
@@ -691,7 +677,7 @@ int jug_sandbox_run_tpl(
 int jug_sandbox_child(void* arg){
 
 	///UNIT-TESTING:
-	exit(JS_CORRECT);
+	exit(JS_TIMELIMIT);
 	////UNIT-TESTING
 
 
@@ -1087,37 +1073,7 @@ int jug_sandbox_init(struct sandbox* sandbox_struct){
 	sb->count_submissions_success=0;
 
 	//check if cgroup filesystem is properly mounted
-//	if(sb->use_cgroups){
-//		error=cgroup_init();
-//		if(error){
-//			debugt("sandbox_init",cgroup_strerror(error));
-//			return -4;
-//		}
-//		//check for memory controller is mounted
-//		char* mount_mem;char* mountp;
-//		cgroup_get_subsys_mount_point("memory",&mountp  );
-//		if(!mountp){
-//			debugt("sandbox_init","memory controller not mounted");
-//			return -3;
-//		}
-//
-//		struct cgroup* sandbox_cgroup=cgroup_new_cgroup("jug_sandbox");
-//		if(!sandbox_cgroup){
-//			debugt("sandbox_init","error cgroup_new_cgroup()");
-//			return -5;
-//		}
-//		error=cgroup_get_cgroup(sandbox_cgroup);
-//		if(error){
-//			//cgroup unfound
-//			error=jug_sandbox_create_cgroup(sandbox_cgroup,sb);
-//			if(error){
-//				debugt("sandbox_init","cannot create the sandbox cgroup");
-//				return -6;
-//			}
-//		}
-//		//cgroup created
-//		sb->sandbox_cgroup=sandbox_cgroup;
-//	}
+	//old code here
 	//check the sandbox root env.
 	struct stat st={0};
 	error=stat("/tmp",&st);
@@ -1136,20 +1092,28 @@ int jug_sandbox_init(struct sandbox* sandbox_struct){
 int jug_sandbox_template_init(){
 	template_pid=-1;
 	int i;
-	//io pipes with the template clone
-	for(i=0;i<THREADS_MAX;i++){
+	//io pipes with the template clone //FIXME: not good for dependancy (Sandbox shouldn't be dependant on Queue)
+	int threads_max=queue_get_workers_count();
+	if(threads_max>THREADS_MAX){
+		debugt("template_init","number of workers must <24");
+		return -5;
+	}
+	debugt("template_init","workers number=%d",threads_max);
+	for(i=0;i<threads_max;i++){
 		if(pipe(io_pipes_in[i])==-1 || pipe(io_pipes_out[i])==-1){
 			debugt("js_template_init","cannot init io pipes pool");
 			return -4;
 		}
 
 	}
+	//check the pipes are OK
 
-		//non blockin
+
+	//non blockin
 	if(pipe(template_pipe_rx)==-1){
-				debugt("js_template_init","cannot init template_pipe_tx: %s",strerror(errno));
-				return -3;
-			}
+		debugt("js_template_init","cannot init template_pipe_tx: %s",strerror(errno));
+		return -3;
+	}
 	//non-blocking read from _rx
 	int flags=fcntl(template_pipe_rx[PIPE_READFROM],F_GETFL,0);
 	fcntl(template_pipe_rx[PIPE_READFROM],F_SETFL,flags|O_NONBLOCK);
@@ -1198,10 +1162,12 @@ int jug_sandbox_template_init(){
 		debugt("js_template_init","cannot clone() the template process : %s",strerror(errno));
 		return -2;
 	}
-	//	for(i=0;i<THREADS_MAX;i++){
-	//		close(io_pipes_in[i][PIPE_READFROM]);
-	//		close(io_pipes_out[i][PIPE_WRITETO]);
-	//	}
+
+
+	for(i=0;i<threads_max;i++){
+		close(io_pipes_in[i][PIPE_READFROM]);
+		close(io_pipes_out[i][PIPE_WRITETO]);
+	}
 	/*close(template_pipe_rx[PIPE_WRITETO]);*/
 	close(template_pipe_tx[PIPE_READFROM]);
 	close(template_pipe_rx[PIPE_WRITETO]);
@@ -1266,7 +1232,7 @@ int jug_sandbox_child_tpl(void* arg){
 // jug_sandbox_template_sighandler (\\[template_process:sighandler])
 void jug_sandbox_template_sighandler(int sig){
 
-	debugt("js_tpl_sighandler","sig received : %d",sig);
+	debugt("tpl_sighandler","sig received : %d",sig);
 	if(sig!=SIGUSR1) return;
 	//
 	char pipe_buf[50];
@@ -1285,17 +1251,9 @@ void jug_sandbox_template_sighandler(int sig){
 	//unserialize
 	struct clone_child_params* ccp=jug_sandbox_template_unserialize(tx_buf);
 	free(tx_buf);
-	//write
-	int pidReturn=12345;
-	int len=sizeof(int);
-	memcpy(shmStart,&len,sizeof(int));
-	memcpy(shmStart+sizeof(int),&pidReturn,len);
-	template_shm[0]='R';
 
-	while(template_shm[0]!='K'); //thread finished its work
-	template_shm[0]='R'; //ready for the next request
-	//exit without cloning
-	return;
+
+
 	//
 	///////testunit
 
@@ -1334,18 +1292,33 @@ void jug_sandbox_template_sighandler(int sig){
 	free(cloned_stack);
 	jug_sandbox_template_freeccp(ccp);
 
-	if(cloned_pid==-1){
-		debugt("js_tpl_sighandler","cannot clone: %s",strerror(errno));
-		sprintf(pipe_buf,"%d",-2);
-		write(template_pipe_rx[PIPE_WRITETO],pipe_buf,strlen(pipe_buf)+1);
-	}else{
-		debugt("CLONE","cloned, pid=%d",cloned_pid);
-		sprintf(pipe_buf,"%d",(int)cloned_pid);
-		write(template_pipe_rx[PIPE_WRITETO],pipe_buf,strlen(pipe_buf)+1);
-	}
-
-
+	//write
+	int pidReturn;
+	if(cloned_pid==-1) pidReturn=-2;
+	else pidReturn=cloned_pid;
+	int len=sizeof(int);
+	memcpy(shmStart,&len,sizeof(int));
+	memcpy(shmStart+sizeof(int),&pidReturn,len);
+	template_shm[0]='R';
+	//work's end
+	while(template_shm[0]!='K'); //thread finished its work
+	template_shm[0]='R'; //ready for the next request
+	//exit without cloning
 	return;
+	//
+	//
+//	if(cloned_pid==-1){
+//		debugt("js_tpl_sighandler","cannot clone: %s",strerror(errno));
+//		sprintf(pipe_buf,"%d",-2);
+//		write(template_pipe_rx[PIPE_WRITETO],pipe_buf,strlen(pipe_buf)+1);
+//	}else{
+//		debugt("CLONE","cloned, pid=%d",cloned_pid);
+//		sprintf(pipe_buf,"%d",(int)cloned_pid);
+//		write(template_pipe_rx[PIPE_WRITETO],pipe_buf,strlen(pipe_buf)+1);
+//	}
+//
+//
+//	return;
 
 }
 
@@ -1400,35 +1373,6 @@ pid_t jug_sandbox_template_clone(void*arg, int len){
 	return (pid_t)readPid;
 //	return (pid_t)88989;
 	//TESTUNIT
-
-	//TESTUNIT:(commented)
-	//read my data
-//	slct=select(template_pipe_rx[PIPE_READFROM]+1,&_set,NULL,NULL,&pipe_read_timeout);
-//	if(slct>0){
-//		is_read=read(template_pipe_rx[PIPE_READFROM],pipe_buf,255);
-//	}
-//	pthread_mutex_unlock(&template_pipe_mutex);
-
-
-
-	if(slct<0){
-		debugt("tpl_clone","error select");
-		return (pid_t)-1;
-	}else if(slct==0){
-		debugt("tpl_clone","timeout select, think about some sync system, to avoid reading someone else data");
-		return (pid_t)-1;
-	}
-	if(is_read<0){
-		debugt("tpl_clone","cannot read the pid of the cloned process: %s",strerror(errno));
-		return -1;
-	}else if(is_read==0){
-		debugt("tpl_clone","nothing read from template_pipe");
-
-		return -1;
-	}else{
-		return (pid_t)atoi(pipe_buf);
-	}
-
 
 }
 

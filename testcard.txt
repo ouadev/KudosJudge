@@ -2,9 +2,9 @@
 + template communication, signal sending data exchange					IN PROGESS
 		+ send signal and quit (agressive)								OK
 		+ data exchange (without cloning), serialization				IN PROGRESS
-			+ full exchange 											OK (shared memory, except some hanging)
+			+ full exchange (shared memory, except some hanging)   		OK (hangs, may be because signal handling, should mask)
 + template launching the Watcher
-		+ watcher exits after launch 
+		+ watcher exits after launch 									OK
 +
 + template's launched watcher : communication and waiting
 		+ watcher write some stuff to stdout and exit (no comp)
