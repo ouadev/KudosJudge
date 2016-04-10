@@ -172,10 +172,12 @@ void queue_worker_serv(jug_connection* connection)
 	char* jug_root=getenv("JUG_ROOT");
 
 
+	//FIXME: manual data just to debug
 	sprintf(submission.input_filename,"%s/tests/problems/twins/twins.in",jug_root);
 	sprintf(submission.output_filename,"%s/tests/problems/twins/twins.out",jug_root);
 	sprintf(submission.source,"/opt/twins");
 	submission.thread_id=queue_worker_id();
+	//
 
 	// SEND TO THE SANDBOX
 	verdict=jug_sandbox_judge(&submission);

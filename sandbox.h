@@ -84,6 +84,7 @@ typedef enum{
  */
 struct sandbox{
 	//parameters
+	int use_ERFS;
 	char* chroot_dir;	 ///< path to the root fs to use (to chroot into)
 	int use_cgroups; 	///< wether to use cgroups;
 	int use_setrlimit;	///< wether to use setrlimit : resources limit in linux.
@@ -344,5 +345,14 @@ void jug_sandbox_template_freeccp(struct clone_child_params* ccp);
  * @note	in future we will need to add compiling layer.
  */
 jug_verdict_enum jug_sandbox_judge(jug_submission* submission);
+
+
+/**
+ * hash function (only for debug purposes)
+ * @param key the data to hash
+ * @param len length of the data in key.
+ * @return the hash integer
+ */
+uint jug_hash(char* key,  int len);
 
 #endif

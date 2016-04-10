@@ -98,10 +98,7 @@ jug_verdict_enum jug_sandbox_judge(jug_submission* submission){
 	args[0]=(char*)malloc(99);
 	strcpy(args[0],submission->source);
 	args[1]=NULL;
-
-
 	//RUN
-
 	ret=jug_sandbox_run_tpl(&runp,global_sandbox,args[0],args,submission->thread_id);
 	debugt("judge","ALL:%d,SUCC:%d", global_sandbox->count_submissions, global_sandbox->count_submissions_success);
 	if(ret!=0 || result==JS_COMP_ERROR || result==JS_UNKNOWN){
@@ -135,6 +132,8 @@ jug_verdict_enum jug_sandbox_judge(jug_submission* submission){
 	case JS_UNKNOWN:
 		return VERDICT_INTERNAL;
 	}
+	//if I Don't know :/
+	return VERDICT_INTERNAL;
 }
 
 
@@ -541,10 +540,6 @@ int jug_sandbox_run_tpl(
 			}
 		}
 
-		//FIXME: TESTUNIT: no exchange of data between the thread & the watcher.
-		if(watcher_alive==0) break;
-		continue;
-		//TESTUNIT
 
 		//process's available output from the watcher.
 		if(endoffile || compout_detected){
@@ -648,8 +643,10 @@ int jug_sandbox_run_tpl(
 		else result=watcher_result;
 	}
 
-	else
-		debugt("rnu_tpl","spawning failed before execvp()");
+	else{
+		debugt("run_tpl","spawning failed before execvp()");
+		result=JS_UNKNOWN;
+	}
 
 	//result
 	run_params_struct->result=result;
@@ -675,46 +672,38 @@ int jug_sandbox_run_tpl(
  */
 //reside@[main_process], run@[template_forked_process|watcher_process]
 int jug_sandbox_child(void* arg){
-
-	///UNIT-TESTING:
-	exit(JS_TIMELIMIT);
-	////UNIT-TESTING
-
-
-
-
 	int fail=0;
 	//
 	debugt("watcher","Starting...");
 
-
-	//exit(JS_OUTPUTLIMIT);
 	//
 	struct clone_child_params* ccp=(struct clone_child_params*)arg;
 
+	//
 	sethostname("KudosJudgeHostName",30);
 	setdomainname("KudosJudgeDomain",30);
-	//we're using linux cgroups
-	if(ccp->sandbox_struct->use_cgroups){
-//		fail=cgroup_attach_task(ccp->sandbox_struct->sandbox_cgroup);
-//		if(fail){
-//			debugt("jug_sandbox_child",cgroup_strerror(fail) );
-//			exit(-1);
-//		}
-	}
 
 	//chrooting
-	char wd[100];
-	fail=chdir(ccp->sandbox_struct->chroot_dir);
-	if(fail){
-		debugt("jug_sandbox_child","chdir() failed, dir:%s",ccp->sandbox_struct->chroot_dir);
-		exit(-2);
-	}
-
-	fail= chroot(".");
-	if( fail){
-		debugt("jug_sandbox_child","error chrooting, linux error : %s\n",strerror(errno));
-		exit(-3);
+	if(ccp->sandbox_struct->use_ERFS){
+		//ERFS MODE ON
+		char wd[100];
+		fail=chdir(ccp->sandbox_struct->chroot_dir);
+		if(fail){
+			debugt("jug_sandbox_child","chdir() failed, dir:%s",ccp->sandbox_struct->chroot_dir);
+			exit(-2);
+		}
+		fail= chroot(".");
+		if( fail){
+			debugt("jug_sandbox_child","error chrooting, linux error : %s\n",strerror(errno));
+			exit(-3);
+		}
+	}else{
+		debugt("sandbox_child","ERFS mode off");
+		fail=chdir("/");
+		if(fail){
+			debugt("jug_sandbox_child","chdir() to '/' failed");
+			exit(-2);
+		}
 	}
 
 	//remount the proc so it prints the new stuff (CLONE_NEWPID to work)
@@ -984,6 +973,7 @@ int jug_sandbox_child(void* arg){
 
 
 	ccp->argv[0]="/KudosBinary";
+	debugt("binary","trying to execute : %s", ccp->binary_path);
 	execvpe(ccp->binary_path,ccp->argv,sandbox_envs);
 	debugt("binary","error execvp, %d, %s",errno==EFAULT,strerror(errno));
 	return -999;
@@ -1047,6 +1037,12 @@ int jug_sandbox_init(struct sandbox* sandbox_struct){
 		return -1;
 	}
 	sb->use_setrlimit= atoi(value);
+	//whether to usre ERFS (execution root file system)
+	if( (value=jug_get_config("Executer","use_ERFS"))==NULL){
+		debugt("sandbox_init","cannot read use_ERFS");
+		return -1;
+	}
+	sb->use_ERFS=atoi(value);
 	//ERFS path
 	if( (value=jug_get_config("Executer","chroot_dir_path"))==NULL){
 		debugt("sandbox_init","cannot read chroot_dir_path");
@@ -1236,7 +1232,7 @@ void jug_sandbox_template_sighandler(int sig){
 	if(sig!=SIGUSR1) return;
 	//
 	char pipe_buf[50];
-	pid_t cloned_pid;
+	pid_t cloned_pid=-1;
 	int rd,i, _thread_order;
 	int wr;
 
@@ -1247,11 +1243,12 @@ void jug_sandbox_template_sighandler(int sig){
 	//read args
 	char* shmStart=template_shm+1;
 	int readLen=*((int*)shmStart);
-	memcpy(tx_buf, shmStart+readLen, readLen);
+	memcpy(tx_buf, shmStart+sizeof(int), readLen);
+
+
 	//unserialize
 	struct clone_child_params* ccp=jug_sandbox_template_unserialize(tx_buf);
 	free(tx_buf);
-
 
 
 	//
@@ -1490,42 +1487,6 @@ void jug_sandbox_template_freeccp(struct clone_child_params* ccp){
 
 
 
-
-
-//jug_sandbox_create_cgroup
-//private
-
-//int jug_sandbox_create_cgroup(struct cgroup* sandbox,struct sandbox* sandbox_struct){
-//	int suc;
-//	//config it
-//	//the user creating the cgroup is the one who can play with it
-//	pid_t uid=getuid();
-//	gid_t gid=getgid();
-//	cgroup_set_uid_gid(sandbox,uid,gid,(uid_t)uid,(gid_t)gid);
-//	struct cgroup_controller* sandbox_memory=cgroup_add_controller(sandbox,"memory");
-//	if(sandbox_memory==NULL){
-//		debugt("sandbox_create_cgroup","cannot add memory controller");
-//		return -1;
-//	}
-//	//limit memory in bytes
-//	cgroup_set_value_int64(sandbox_memory,"memory.limit_in_bytes",sandbox_struct->mem_limit_mb_default*1000000);
-//
-//
-//	//create group
-//	suc=cgroup_create_cgroup(sandbox,0);
-//	if(suc){
-//		debugt("sandbox_create_cgroup",cgroup_strerror(suc));
-//		return -10;
-//	}
-//
-//
-//	return 0;
-//
-//}
-//
-
-
-
 /**
  * jug_sandbox_print_result
  * JS_CORRECT,JS_WRONG,JS_TIMELIMIT,JS_WALL_TIMELIMIT,JS_MEMLIMIT,JS_RUNTIME,JS_PIPE_ERROR,JS_COMP_ERROR,JS_UNKNOWN
@@ -1659,7 +1620,14 @@ void watcher_sig_handler(int sig){
 
 
 
-
+uint jug_hash(char* key, int len){
+	uint hash = 5381;
+	uint M=5381;
+	uint i;
+	for( i = 0; i < len; ++i)
+		hash = M * hash + key[i];
+	return hash % 999999;
+}
 
 
 

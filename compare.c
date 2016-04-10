@@ -84,8 +84,8 @@ int __compare_output(int fd_out_ref,char* rx,int size,int stage){
 
 int compare_output(int fd_out_ref,char* rx,int size,int stage){
 	int ret=__compare_output(fd_out_ref,rx,size,stage);
-	debugt("compare","size:%d\tstage=%d\tcomp=%d\tmsg:",size,stage,ret);
-	debug_fnprintf(stderr,rx,size);
+//	debugt("compare","size:%d\tstage=%d\tcomp=%d\t",size,stage,ret);
+	//debug_fnprintf(stderr,rx,size);
 	return ret;
 }
 

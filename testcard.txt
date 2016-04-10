@@ -1,18 +1,10 @@
 + threding isolated (tested till 10 workers)							OK
-+ template communication, signal sending data exchange					IN PROGESS
++ template communication, signal sending data exchange					OK
 		+ send signal and quit (agressive)								OK
-		+ data exchange (without cloning), serialization				IN PROGRESS
+		+ data exchange (without cloning), serialization				OK
 			+ full exchange (shared memory, except some hanging)   		OK (hangs, may be because signal handling, should mask)
-+ template launching the Watcher
-		+ watcher exits after launch 									OK
++ template launching the Watcher										IN PROGRESS
+		+ watcher exits after launch 									OK (fix THRADS_MAX bug)
+		+ ERFS-mode enable/disable										OK
 +
-+ template's launched watcher : communication and waiting
-		+ watcher write some stuff to stdout and exit (no comp)
-		+ watcher write stuff to stdout and exit (with comp)
-		+ sandbox stuff
-+ watcher clones the binary
-
-
-
-
-PS: restest the ~3 previous tests with IO errors in mind
++ sandbox executing programs in threaded-mode							OK
