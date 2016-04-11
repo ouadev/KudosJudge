@@ -159,23 +159,21 @@ void queue_worker_serv(jug_connection* connection)
 
 
 //
-//		if(jug_int_recv(client_sock,&request)!=0){
-//			debugt("queue","error while receiving, worker %d",queue_worker_id());
-//			return;
-//		}
+	if(jug_int_recv(client_sock,&request)!=0){
+		debugt("queue","error while receiving, worker %d",queue_worker_id());
+		return;
+	}
+
 
 	//make a submisison object (in the real scenario, we will need more elaborated data)
 	submission.input_filename=(char*)malloc(110);
 	submission.output_filename=(char*)malloc(110);
 	submission.source=(char*)malloc(50);
-
 	char* jug_root=getenv("JUG_ROOT");
-
-
 	//FIXME: manual data just to debug
-	sprintf(submission.input_filename,"%s/tests/problems/twins/twins.in",jug_root);
-	sprintf(submission.output_filename,"%s/tests/problems/twins/twins.out",jug_root);
-	sprintf(submission.source,"/opt/twins");
+	sprintf(submission.input_filename,"%s",request.tc_in_path);
+	sprintf(submission.output_filename,"%s",request.tc_out_path);
+	sprintf(submission.source,"%s",request.path);
 	submission.thread_id=queue_worker_id();
 	//
 

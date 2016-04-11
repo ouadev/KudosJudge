@@ -128,8 +128,6 @@ void print_focus_tags(){
  */
 void kjd_log( char* message,...){
 
-	//FIXME:TESTUNIT
-	return;
 	//
 	char* dbg_msg=(char*)malloc(strlen(message)+120);
 	va_list args;

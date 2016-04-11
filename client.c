@@ -50,7 +50,7 @@ int main(int argc , char *argv[])
 	strcpy(request.path,"/opt/twins");
 	strcpy(request.echo, request.path);
 	strcpy(request.tc_in_path,"/home/odev/jug/tests/problems/twins/twins.in");
-	strcpy(request.tc_out_path,"/home/odev/jug/tests/problems/correct.out");
+	strcpy(request.tc_out_path,"/home/odev/jug/tests/problems/twins/twins.out");
 	request.id=999;
 
 	//Send some data

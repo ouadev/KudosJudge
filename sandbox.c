@@ -81,6 +81,7 @@ jug_verdict_enum jug_sandbox_judge(jug_submission* submission){
 	if(infd==-1 || rightfd==-1){
 		debugt("sandbox","%s", get_current_dir_name());
 		debugt("sandbx","infd (%d) or rightfd (%d) invalid : %s", infd, rightfd, strerror(errno) );
+		debugt("sandbx","right_fd = %s",submission->output_filename);
 		return VERDICT_OUTPUTLIMIT;
 	}
 	//change the config.ini default parameters with your own stuff
