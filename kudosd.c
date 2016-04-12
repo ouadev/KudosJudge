@@ -23,6 +23,7 @@
 #include "queue.h"
 #include "protocol.h"
 #include "sandbox.h"
+#include "lang.h"
 
 
 
@@ -218,7 +219,16 @@ int main(int argc, char* argv[]){
 		return -556;
 	}
 	kjd_log("Sandbox started");
-
+	///////////////////////////
+	///// init languages /////
+	/////////////////////////
+	error=lang_init();
+	if(error!=0){
+		kjd_log("Problem initializing languages");
+		return -557;
+	}
+	kjd_log("Languages are ready");
+	lang_print();
 
 
 	/////////////////////

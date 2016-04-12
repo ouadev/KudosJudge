@@ -25,6 +25,12 @@ struct jug_ini{
 	char* path;
 };
 
+typedef struct jug_ini_keyval{
+	char* key;
+	char* value;
+	struct jug_ini_keyval* next;
+} jug_ini_keyval;
+
 /**
 * @desc an easy function to use inside Jug code to retreive a value \
 * for a key inside the global config file "JUG_ROOT/etc/config.ini"
@@ -49,6 +55,6 @@ struct jug_ini* jug_ini_load(char* filename);
 
 char* jug_ini_get_string(struct jug_ini* ini,char* section,char* key);
 
-
+jug_ini_keyval* jug_ini_get_section( char* section);
 
 #endif

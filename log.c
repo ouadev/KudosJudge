@@ -12,12 +12,14 @@ char _focus_tags[20][10];//10 of 20-chars strings
 
 
 void debug(char* message,...){
-	char dbg_msg[400];
+	char* dbg_msg=(char*)malloc(strlen(message)+120);
 	va_list args;
 	va_start(args,message);
 	vsprintf(dbg_msg,message,args);
 	va_end(args);
 	fprintf(stderr,"+ %s\n",dbg_msg);
+	fflush(stderr);
+	free(dbg_msg);
 
 }
 
