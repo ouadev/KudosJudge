@@ -42,7 +42,9 @@ typedef struct jug_submission
     int   language;
     int   time_limit;
     int   mem_limit;
-    int thread_id; //propagated to the other parts of the judge (debug only)
+    int   thread_id; //propagated to the other parts of the judge (debug only)
+    //debug only
+    char* bin_path;
 } jug_submission;
 
 /**

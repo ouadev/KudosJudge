@@ -51,6 +51,12 @@ int main(int argc , char *argv[])
 	strcpy(request.echo, request.path);
 	strcpy(request.tc_in_path,"/home/odev/jug/tests/problems/twins/twins.in");
 	strcpy(request.tc_out_path,"/home/odev/jug/tests/problems/twins/twins.out");
+	//using sourcecode causes trouble, the size is very long and the network reading is not ready for that
+//	strcpy(request.sourcecode, "#include <stdio.h>\n int main(){ printf(\"Hello World\"); return 0;}");
+	//so instead we use a name for a file that contains the source just for debugging purposes
+	request.sourcecode[0]='\0'; //mandatory
+	strcpy(request.sourcecode_path,"/home/odev/jug/tests/problems/twins/twins.c");
+
 	request.id=999;
 
 	//Send some data

@@ -4,7 +4,7 @@ SUBDIRS=iniparser proc_maps_parser
 #build the kudos deamon
 kudosd: all
 	gcc kudosd.o iniparser/iniparser.o config.o log.o sandbox.o \
-	compare.o queue.o interface.o protocol.o lang.o \
+	compare.o queue.o interface.o protocol.o lang.o ramfs.o \
 	-o bin/kudosd  -lpthread
 
 #build the experimental client

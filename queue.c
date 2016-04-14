@@ -130,7 +130,7 @@ jug_connection* queue_pop_connection()
  *
  */
 int queue_get_workers_count(){
-		return g_num_worker_threads;
+	return g_num_worker_threads;
 };
 int factor(int x){
 	if(x==0) return 1;
@@ -143,6 +143,7 @@ void queue_worker_serv(jug_connection* connection)
 	int read_size, read_size_acc=0;
 	int write_size=0;
 	int worker_id;
+	int error=0;
 	int_request request;
 	int_response response;
 	jug_submission submission;
@@ -152,46 +153,116 @@ void queue_worker_serv(jug_connection* connection)
 	//run the resulting binary inside the sandbox.
 	//send the client the response object
 	//close connection
+	//FIXME: waste time (0.5s)
 	sleep(0.5);
 	worker_id=queue_worker_id();
 	//Receive a message from client
 	int client_sock=connection->client_socket;
-
-
-//
+	//
 	if(jug_int_recv(client_sock,&request)!=0){
 		debugt("queue","error while receiving, worker %d",queue_worker_id());
 		return;
 	}
-
-
 	//make a submisison object (in the real scenario, we will need more elaborated data)
-	submission.input_filename=(char*)malloc(110);
-	submission.output_filename=(char*)malloc(110);
-	submission.source=(char*)malloc(50);
+	submission.input_filename=(char*)malloc(300);
+	submission.output_filename=(char*)malloc(300);
+	submission.source=(char*)malloc(7000);
+	submission.bin_path=(char*)malloc(300);
 	char* jug_root=getenv("JUG_ROOT");
-	//FIXME: manual data just to debug
+
 	sprintf(submission.input_filename,"%s",request.tc_in_path);
 	sprintf(submission.output_filename,"%s",request.tc_out_path);
-	sprintf(submission.source,"%s",request.path);
+	sprintf(submission.bin_path,"%s",request.path);
+	sprintf(submission.source,"%s",request.sourcecode);
 	submission.thread_id=queue_worker_id();
-	//
 
+
+
+	//compile the sourcecode (is sourcecode is set, transform to a binary to be executed)
+	if(request.sourcecode[0]!='\0'){
+		//	debugt("queue"," ~~~source code~~~~\n%s\n~~~~~~~~~~~", request.sourcecode);
+		debugt("queue","source found in the request");
+		error=lang_process(submission.source, "c",worker_id,submission.bin_path);
+		if(error){
+			debugt("queue"," error at lang_process() : %d",error);
+			//return the verdict
+			response.verdict=(int)VERDICT_INTERNAL;
+			sprintf(response.verdict_s,"%s (%d)",protocol_verdict_to_string(response.verdict),worker_id);
+			debugt("queue","worker: %d, verdict:%s",queue_worker_id(),protocol_verdict_to_string(response.verdict));
+			write_size=write(client_sock , &response, sizeof(int_response));
+			//jug_int_write(client_sock, &response);
+			close(client_sock);
+			return;
+		}
+
+	}else if(request.sourcecode_path[0]!='\0'){
+		debugt("queue","sourcecode path is given : %s", request.sourcecode_path);
+		FILE* source_file=fopen(request.sourcecode_path,"r");
+		if(source_file==NULL){
+			debugt("queue","cannot open sourcecode_path");
+			debugt("queue"," error at lang_process() : %d",error);
+			//return the verdict
+			response.verdict=(int)VERDICT_INTERNAL;
+			sprintf(response.verdict_s,"%s (%d)",protocol_verdict_to_string(response.verdict),worker_id);
+			debugt("queue","worker: %d, verdict:%s",queue_worker_id(),protocol_verdict_to_string(response.verdict));
+			write_size=write(client_sock , &response, sizeof(int_response));
+			//jug_int_write(client_sock, &response);
+			close(client_sock);
+			return;
+		}
+		char* source_begin=submission.source;
+		while(fgets(source_begin,6800,source_file)!=NULL){
+			source_begin+=strlen(source_begin);
+		}
+		if(error){
+			debugt("queue"," cannot extract source from sourcecode_path: (%d)",error);
+			response.verdict=(int)VERDICT_INTERNAL;
+			sprintf(response.verdict_s,"%s (%d)",protocol_verdict_to_string(response.verdict),worker_id);
+			debugt("queue","worker: %d, verdict:%s",queue_worker_id(),protocol_verdict_to_string(response.verdict));
+			write_size=write(client_sock , &response, sizeof(int_response));
+			//jug_int_write(client_sock, &response);
+			close(client_sock);
+			return;
+		}
+		fclose(source_file);
+		debugt("queue","length of source extracted from file : %d",strlen(submission.source) );
+		error=lang_process(submission.source, "c",worker_id,submission.bin_path);
+		if(error){
+			debugt("queue"," error at lang_process() : %d",error);
+			//return the verdict
+			response.verdict=(int)VERDICT_INTERNAL;
+			sprintf(response.verdict_s,"%s (%d)",protocol_verdict_to_string(response.verdict),worker_id);
+			debugt("queue","worker: %d, verdict:%s",queue_worker_id(),protocol_verdict_to_string(response.verdict));
+			write_size=write(client_sock , &response, sizeof(int_response));
+			//jug_int_write(client_sock, &response);
+			close(client_sock);
+			return;
+		}
+
+	}else{
+		debugt("queue"," neither source or sourcecode_path are given from client");
+		//return the verdict
+		response.verdict=(int)VERDICT_INTERNAL;
+		sprintf(response.verdict_s,"%s (%d)",protocol_verdict_to_string(response.verdict),worker_id);
+		debugt("queue","worker: %d, verdict:%s",queue_worker_id(),protocol_verdict_to_string(response.verdict));
+		write_size=write(client_sock , &response, sizeof(int_response));
+		//jug_int_write(client_sock, &response);
+		close(client_sock);
+		return;
+	}
 	// SEND TO THE SANDBOX
 	verdict=jug_sandbox_judge(&submission);
-//	verdict=VERDICT_ACCEPTED;
+	//	verdict=VERDICT_ACCEPTED;
 
 	free(submission.input_filename);
 	free(submission.output_filename);
 	free(submission.source);
-
+	free(submission.bin_path);
+	//TODO: remove the files
 
 	//return the verdict
 	response.verdict=(int)verdict;
 	sprintf(response.verdict_s,"%s (%d)",protocol_verdict_to_string(verdict),worker_id);
-
-
-
 	debugt("queue","worker: %d, verdict:%s",queue_worker_id(),protocol_verdict_to_string(verdict));
 	write_size=write(client_sock , &response, sizeof(int_response));
 	//jug_int_write(client_sock, &response);
@@ -221,9 +292,9 @@ void* queue_worker_main(void* data)
 	int worker_id=queue_worker_id();
 
 #if DEBUG_THREADING
-//	debug_thread_state dumb = {worker_data->thread_id,THREAD_STARTED
-//			,thread_debug_get_time()};
-//	debug_push_thread_state(dumb);
+	//	debug_thread_state dumb = {worker_data->thread_id,THREAD_STARTED
+	//			,thread_debug_get_time()};
+	//	debug_push_thread_state(dumb);
 
 	thread_debug_snapshot(THREAD_STARTED,"");
 
@@ -232,10 +303,10 @@ void* queue_worker_main(void* data)
 	for(;;)
 	{
 #if DEBUG_THREADING      
-//		debug_thread_state dumb = {worker_data->thread_id,
-//				THREAD_WAITING
-//				,thread_debug_get_time()};
-//		debug_push_thread_state(dumb);
+		//		debug_thread_state dumb = {worker_data->thread_id,
+		//				THREAD_WAITING
+		//				,thread_debug_get_time()};
+		//		debug_push_thread_state(dumb);
 		thread_debug_snapshot(THREAD_WAITING,"");
 		sem_wait(&work_queue->work_semaphore);
 

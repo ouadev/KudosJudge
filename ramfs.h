@@ -52,6 +52,7 @@ typedef struct ramfs_info{
 //the name of the directory to put stuff
 char _ramfs_dir[400];
 char _ramfs_full_path[600];
+ramfs_info* global_ramfs;
 
 
 /**
@@ -61,6 +62,13 @@ char _ramfs_full_path[600];
 * @param max_size maximum size to tolerate,given the Linux ramfs hasn't size limit, in MegaBytes
 */
 ramfs_info* init_ramfs(char* rootfs,char* ramfs_dir,int size_alloc,int max_size);
+
+/**
+ * set a global ramfs to be used in the whole software
+ */
+
+void set_global_ramfs(ramfs_info* info);
+ramfs_info* get_global_ramfs();
 
 /**
 * create_ramfs()

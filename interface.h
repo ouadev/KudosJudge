@@ -25,17 +25,23 @@ typedef struct jug_connection{
  * struct int_request
  * an example of structure to use to communicate with the daemon
  * (note: use a serialization framework to send these structures over network;
+ * + should recompile client.c if something changed in the definition of this structure
  */
 typedef struct int_request{
 	int type; //< type of request :
 			//initContestMode (to load testcases and stuff), judgeSubmission, getState (used also to get the verdict)
 	int synchronous; //<wether the client wishes to wait for the verdict or not, otherwise he will use getState afterward.
-	//for debugging
+
 	int id; ///< this ID is provided by the client to be able to follow the state of a submission, (useful when synchronous is off)
-	char path[50]; ///< path to execute (inside ERFS if activated)
+
 	char tc_in_path[100]; ///< path outside ERFS
 	char tc_out_path[100]; ///< path outside ERFS
+	char sourcecode_path[100];
+	char sourcecode[500]; //the source code of the submission
+	//for debugging
+	char path[50]; ///< path to execute (inside ERFS if activated) // in case the client give directly the binary (only in debug mode)
 	char echo[15]; ///< simple char array to return back to test connection
+	//
 
 
 

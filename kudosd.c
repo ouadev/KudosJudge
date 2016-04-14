@@ -23,6 +23,7 @@
 #include "queue.h"
 #include "protocol.h"
 #include "sandbox.h"
+#include "ramfs.h"
 #include "lang.h"
 
 
@@ -200,7 +201,26 @@ int main(int argc, char* argv[]){
 	freopen(stderr_tmpfile,"w+",stderr);
 	//freopen(stdout_tmpfile,"w+",stdout);
 
-
+	//////////////////////////
+	//// init ramfs /////////
+	////////////////////////
+	//get env
+	char* jug_root;
+	if (  (jug_root=getenv("JUG_ROOT"))==NULL){
+		kjd_log("JUG_ROOT environment variable is not found \n");
+		return -558;
+	}
+	ramfs_info* ramfsinfo=init_ramfs(jug_root,"ramfs",10,15);
+	error=create_ramfs(ramfsinfo);
+	if(error && error!=-2){//-2: already exists, good
+		kjd_log("Ramfs directory cannot be initialized : %s/%s",jug_root,"ramfs");
+		return -559;
+	}else if(error==-2){
+		kjd_log("Ramfs is already mounted : %s", ramfsinfo->path);
+	}else{
+		kjd_log("Ramfs is mounted : %s", ramfsinfo->path);
+	}
+	set_global_ramfs(ramfsinfo);
 	///////////////////
 	//init queue /////
 	/////////////////
@@ -228,8 +248,7 @@ int main(int argc, char* argv[]){
 		return -557;
 	}
 	kjd_log("Languages are ready");
-	lang_print();
-
+	//lang_print();
 
 	/////////////////////
 	//setup tcp server//

@@ -79,10 +79,9 @@ jug_verdict_enum jug_sandbox_judge(jug_submission* submission){
 	rightfd=open(	submission->output_filename,O_RDWR);
 
 	if(infd==-1 || rightfd==-1){
-		debugt("sandbox","%s", get_current_dir_name());
 		debugt("sandbx","infd (%d) or rightfd (%d) invalid : %s", infd, rightfd, strerror(errno) );
 		debugt("sandbx","right_fd = %s",submission->output_filename);
-		return VERDICT_OUTPUTLIMIT;
+		return VERDICT_INTERNAL;
 	}
 	//change the config.ini default parameters with your own stuff
 	struct run_params runp;
@@ -95,9 +94,14 @@ jug_verdict_enum jug_sandbox_judge(jug_submission* submission){
 
 	int thread_order=submission->thread_id;
 	//args
+	if(global_sandbox->use_ERFS==1){
+		//TODO:if ERFS, should copy/paste the binary to it.
+		debugt("sandbox","use_ERFS enabled, must copy the binary to it, stopping ...");
+		return VERDICT_INTERNAL;
+	}
 	char** args=(char**)malloc(3*sizeof(char**));
 	args[0]=(char*)malloc(99);
-	strcpy(args[0],submission->source);
+	strcpy(args[0],submission->bin_path);
 	args[1]=NULL;
 	//RUN
 	ret=jug_sandbox_run_tpl(&runp,global_sandbox,args[0],args,submission->thread_id);
@@ -107,9 +111,10 @@ jug_verdict_enum jug_sandbox_judge(jug_submission* submission){
 	}
 	////////////
 
-
 	close(infd);
 	close(rightfd);
+	free(args[0]);
+	free(args);
 	//some error duting running
 	if(ret!=0){
 		return VERDICT_INTERNAL;

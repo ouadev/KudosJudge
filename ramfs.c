@@ -9,6 +9,8 @@
 */
 ramfs_info* init_ramfs(char* ramfs_root,char*ramfs_dirname,int size_alloc_mb,int max_size_mb){
 
+	global_ramfs=NULL;
+	//
 	if(size_alloc_mb<0) size_alloc_mb=0;
 	if(max_size_mb>size_alloc_mb)
 		max_size_mb=size_alloc_mb;
@@ -27,7 +29,6 @@ ramfs_info* init_ramfs(char* ramfs_root,char*ramfs_dirname,int size_alloc_mb,int
 	strcpy(meminfo->path,meminfo->root_dir);
 	strcat(meminfo->path,"/");
 	strcat(meminfo->path,meminfo->dirname);
-	debugt("ramfs_init","%s",meminfo->dirname);
 	//other params
 	meminfo->size_alloc=size_alloc_mb*1000000;
 	meminfo->used=0;
@@ -36,6 +37,15 @@ ramfs_info* init_ramfs(char* ramfs_root,char*ramfs_dirname,int size_alloc_mb,int
 	return meminfo;
 }
 
+//
+
+void set_global_ramfs(ramfs_info* info){
+	global_ramfs=info;
+}
+
+ramfs_info* get_global_ramfs(){
+	return global_ramfs;
+}
 
 
 //is mounted, guessing w safi (boolean return)
@@ -112,12 +122,10 @@ int create_ramfs( ramfs_info*info){
 	struct stat st={0};
 	if( stat(info->path,&st)==-1){
 		if(mkdir(info->path,0700)!=0){
-
 			debugll("cannot mkdir the ramfs dir");
 			return -1;
 		}
 	}else{
-		debug("ramfs dir already exists :/");
 		return -2;//jug ramfs dir already exists
 	}
 	//success

@@ -26,13 +26,22 @@ int lang_init(){
 		strncpy(g_languages[g_languages_count].label, p, q-p);
 		//cmd_compile
 		p=q+1;
-		strcpy(g_languages[g_languages_count].cmd_compile, p);
-		tmp=tmp->next;
+		q=strchr(p,',');
+		strncpy(g_languages[g_languages_count].cmd_compile, p, q-p);
+		//ext compile
+		p=q+1;
+		strcpy(g_languages[g_languages_count].ext_compile, p);
 		//
 		g_languages[g_languages_count].cmd_interpr[0]='\0';
 		g_languages[g_languages_count].cmd_vm[0]='\0';
+		g_languages[g_languages_count].ext_interpr[0]='\0';
+		g_languages[g_languages_count].ext_vm[0]='\0';
+		//iteration end
+		tmp=tmp->next;
 		g_languages_count++;
+
 	}
+
 	//	//interpreters
 	tmp=ini_interpreters;
 	while(tmp!=NULL){
@@ -48,11 +57,19 @@ int lang_init(){
 		strncpy(g_languages[g_languages_count].label, p, q-p);
 		//cmd_interpr
 		p=q+1;
-		strcpy(g_languages[g_languages_count].cmd_interpr, p);
-		tmp=tmp->next;
+		q=strchr(p,',');
+		strncpy(g_languages[g_languages_count].cmd_interpr, p, q-p);
+		//ext_inter
+		p=q+1;
+		strcpy(g_languages[g_languages_count].ext_interpr, p);
+
 		//
 		g_languages[g_languages_count].cmd_compile[0]='\0';
 		g_languages[g_languages_count].cmd_vm[0]='\0';
+		g_languages[g_languages_count].ext_compile[0]='\0';
+		g_languages[g_languages_count].ext_vm[0]='\0';
+
+		tmp=tmp->next;
 		g_languages_count++;
 	}
 	//	//Virtual machines
@@ -72,18 +89,148 @@ int lang_init(){
 		p=q+1;
 		q=strchr(p,',');
 		strncpy(g_languages[g_languages_count].cmd_compile, p, q-p);
+		//ext_compile
+		p=q+1;
+		q=strchr(p,',');
+		strncpy(g_languages[g_languages_count].ext_compile, p, q-p);
 		//cmd_vm
 		p=q+1;
-		strcpy(g_languages[g_languages_count].cmd_vm, p);
-		tmp=tmp->next;
+		q=strchr(p,',');
+		strncpy(g_languages[g_languages_count].cmd_vm, p, q-p);
+		//ext_vm
+		p=q+1;
+		strcpy(g_languages[g_languages_count].ext_vm, p);
 		//
 		g_languages[g_languages_count].cmd_interpr[0]='\0';
+		g_languages[g_languages_count].ext_interpr[0]='\0';
+
+		tmp=tmp->next;
 		g_languages_count++;
 	}
 
+	//create a directory in global_ramfs
+	ramfs_info* ramfs=get_global_ramfs();
+	char * lang_workspace=(char*) malloc(sizeof(char)*(strlen(ramfs->path)+100));
+	sprintf(lang_workspace, "%s/%s",ramfs->path,"lang-workspace");
+	if(mkdir(lang_workspace, 0777)!=0 && errno!=EEXIST){
+		debugt("lang"," cannot create languages workspace in ramfs directory");
+		return -5;
+	}
+	g_lang_workspace=lang_workspace;
+	//
 	return 0;
 }
 
+//get_lang
+Lang* lang_get(char* langid){
+	int i;
+	for(i=0;i<g_languages_count; i++){
+		if ( strcmp(g_languages[i].id, langid)==0)
+			return g_languages+i;
+	}
+	return NULL;
+}
+
+//lang_process
+int lang_process(char* text, char* langid, int worker_id, char*bin_cmd){
+	//init the worker directory in the languages workspace
+	char* worker_workspace=(char*)malloc(sizeof(char)*(strlen(g_lang_workspace)+20));
+	if(lang_workspace_inited[worker_id]==0){
+		sprintf(worker_workspace, "%s/%d",g_lang_workspace,worker_id );
+		if(mkdir(worker_workspace, 0777) && errno!=EEXIST){
+			debugt("lang","cannot create the lang workspace for the worker : %d", worker_id);
+			return -2;
+		}
+		lang_workspace_inited[worker_id]=1;
+	}
+	free(worker_workspace);
+
+	//get lang
+	Lang* lang=lang_get(langid);
+	if(lang==NULL){
+		//unfounf langid
+		return -1;
+	}
+	const char* stype[3]={"COMPILED","INTERPRETED","VIRTUAL MACHINE"};
+	debugt("lang-process","submissin language : %s (%s)", lang->label, stype[lang->type]);
+	//get text
+	ramfs_info* ramfs=get_global_ramfs();
+	char* text_filename=(char*)malloc(sizeof(char)*(strlen(ramfs->path)+50));
+	char* output_filename=(char*)malloc(sizeof(char)*(strlen(ramfs->path)+50));
+	char* compile_cmdline=(char*)malloc(sizeof(char)*(strlen(ramfs->path)+200));
+	FILE* compile_file=NULL;
+	struct stat st;
+	//COMPILED & VM languages need a compiling layer
+	if(lang->type==LANG_COMPILED  || lang->type==LANG_VM){
+		//in file
+		sprintf(text_filename,"%s/%d/Submission.%s", g_lang_workspace,worker_id,lang->ext_compile);
+		umask(S_IWGRP|S_IRGRP|S_IWOTH|S_IROTH);
+		compile_file=fopen(text_filename,"w+");
+		if(compile_file==NULL){
+			debugt("lang","cannot create a tmp C file, error:%s\n",strerror(errno));
+			free(text_filename);
+			free(output_filename);
+			free(compile_cmdline);
+			return -2;
+		}
+		if(fputs(text,compile_file)<=0){
+			debugt("lang","cannot write sourcecode to text_filename");
+			free(text_filename);
+			free(output_filename);
+			free(compile_cmdline);
+			fclose(compile_file);
+			return -5;
+		}
+		fclose(compile_file);
+		//out file
+		if(lang->type==LANG_VM){//bytecode
+			sprintf(output_filename,"%s/%d/Submission.%s",g_lang_workspace,worker_id, lang->ext_vm);
+		}else{//just compiling directly to a binary
+			sprintf(output_filename,"%s/%d/Submission",g_lang_workspace, worker_id);
+		}
+		//launch complining
+		sprintf(compile_cmdline,lang->cmd_compile, text_filename, output_filename);
+//		debugt("lang-process", "compile final cmd: %s", compile_cmdline);
+		system(compile_cmdline);
+
+		//check if the file is generated : it may not be always true
+		if(stat(output_filename,&st) != 0){
+			debugt("lang","cannot fine the generated file : %s",output_filename);
+			free(text_filename);
+			free(output_filename);
+			free(compile_cmdline);
+			fclose(compile_file);
+			return -3;
+		}
+		//else delete
+		unlink(text_filename);
+	}
+
+
+	//construct the cmd_binary.
+	//INTERPRETED languages need no processing
+	if(lang->type==LANG_INTERPRETED){
+		sprintf(output_filename, "%s/%d/Submission.%s", g_lang_workspace , worker_id, lang->ext_interpr);
+
+	}
+	if(lang->type==LANG_COMPILED){
+		sprintf(bin_cmd,"%s", output_filename);
+	}else if( lang->type==LANG_VM){
+		sprintf(bin_cmd, lang->cmd_vm, output_filename );
+	}else if (lang->type==LANG_INTERPRETED){
+		sprintf(bin_cmd, lang->cmd_interpr, output_filename);
+	}
+
+	//cleanup
+	free(text_filename);
+	free(output_filename);
+	free(compile_cmdline);
+	//fclose(compile_file);
+	//
+	return 0;
+
+
+}
 
 //lang_print
 void lang_print(){
@@ -100,6 +247,6 @@ void lang_print(){
 		if(strlen(g_languages[i].cmd_vm)>0)
 			debug("run in vm: %s", g_languages[i].cmd_vm );
 		if(i==g_languages_count-1)
-		debug("-------------------------");
+			debug("-------------------------");
 	}
 }
