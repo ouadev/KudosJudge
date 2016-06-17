@@ -1,2 +1,4 @@
 kill `pidof kudosd`;
 rm /tmp/kudosd-stderr-$1*;
+umount /var/opt/kudosJudge/ramfs;
+rm -Rf /var/opt/kudosJudge;

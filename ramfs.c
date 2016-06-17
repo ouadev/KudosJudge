@@ -129,7 +129,7 @@ int create_ramfs( ramfs_info*info){
 		return -2;//jug ramfs dir already exists
 	}
 	//success
-	//mount a ram fs here 
+	//mount a ram fs here
 	char mount_opts[100];
 	sprintf(mount_opts,"size=%dm",size_m);
 	if(mount("none",info->path,"ramfs",MS_MGC_VAL|MS_NOSUID|MS_NODEV|MS_NOATIME,mount_opts) !=0){

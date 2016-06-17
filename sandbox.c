@@ -96,6 +96,8 @@ jug_verdict_enum jug_sandbox_judge(jug_submission* submission){
 	//args
 	if(global_sandbox->use_ERFS==1){
 		//TODO:if ERFS, should copy/paste the binary to it.
+		//may be you can mount the ramfs into the ERFS. think about security implications.
+		//Or, copy the binaries to the /tmp of the ERFS...
 		debugt("sandbox","use_ERFS enabled, must copy the binary to it, stopping ...");
 		return VERDICT_INTERNAL;
 	}
@@ -103,6 +105,9 @@ jug_verdict_enum jug_sandbox_judge(jug_submission* submission){
 	args[0]=(char*)malloc(99);
 	strcpy(args[0],submission->bin_path);
 	args[1]=NULL;
+
+	//make submission->bin_path binary runnable by less-privileged user.
+	chmod(submission->bin_path,0755);//rwx,r-x,r-x
 	//RUN
 	ret=jug_sandbox_run_tpl(&runp,global_sandbox,args[0],args,submission->thread_id);
 	debugt("judge","ALL:%d,SUCC:%d", global_sandbox->count_submissions, global_sandbox->count_submissions_success);

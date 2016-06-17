@@ -51,6 +51,12 @@ int main(int argc, char* argv[]){
 	int tmpfile_exists=0,daemon_running=0, tmp_read=0;
 	char tmppid_str[10], proc_daemon[50];
 	int complete_to_daemon=0;
+	//set needed environment variable
+	error=setenv(  "JUG_ROOT" , "/opt/kudosJudge", 0);
+	if(error<0){
+		printf("Cannot set the environment variable JUG_ROOT");
+		return -52;
+	}
 	//parse arguments
 	if(argc==1){
 		printf("Usage : %s\n",usage_str);
@@ -73,6 +79,12 @@ int main(int argc, char* argv[]){
 			printf("%s : Unknown action\n",action_str);
 			exit(0);
 		}
+	}
+	//check if run as root
+	if( (action==DAEMON_ACTION_START || action==DAEMON_ACTION_STOP ||
+			action== DAEMON_ACTION_RESTART) && geteuid() != 0)
+	{
+		printf("You may need to run kudosJudge as root (sudo)\n");
 	}
 	//execute action
 	//gather information about daemon state
@@ -206,11 +218,26 @@ int main(int argc, char* argv[]){
 	////////////////////////
 	//get env
 	char* jug_root;
+	char* ramfs_root= (char*)malloc(sizeof(char)* 400);
 	if (  (jug_root=getenv("JUG_ROOT"))==NULL){
 		kjd_log("JUG_ROOT environment variable is not found \n");
 		return -558;
 	}
-	ramfs_info* ramfsinfo=init_ramfs(jug_root,"ramfs",10,15);
+	//check if the /var/opt/kudosdJudge exists
+	struct stat varOptKudosdJudge;
+	if( stat("/var/opt/kudosJudge", &varOptKudosdJudge)!=0 ||
+			!S_ISDIR(varOptKudosdJudge.st_mode)){
+		kjd_log("/var/opt/kudosJudge don't exist : creating it ...");
+		mode_t oldUmask=umask(022);
+		error=mkdir("/var/opt/kudosJudge",0777);
+		umask(oldUmask);
+		if(error !=0){
+			kjd_log("failed creating /var/opt/kudosJudge : %d", strerror(errno));
+			return -558;
+		}
+	}
+	//put ramfs inside /var/opt/kudosJudge
+	ramfs_info* ramfsinfo=init_ramfs("/var/opt/kudosJudge","ramfs",10,15);
 	error=create_ramfs(ramfsinfo);
 	if(error && error!=-2){//-2: already exists, good
 		kjd_log("Ramfs directory cannot be initialized : %s/%s",jug_root,"ramfs");

@@ -1,6 +1,9 @@
 # Global Makefile to compile (gcc -c) the libraries used in the project, and its components
 SUBDIRS=iniparser proc_maps_parser
 
+#buidl everything :  kudosd (daemon) and the experimental client
+everything: kudosd client
+
 #build the kudos deamon
 kudosd: all
 	gcc kudosd.o iniparser/iniparser.o config.o log.o sandbox.o \
@@ -8,7 +11,7 @@ kudosd: all
 	-o bin/kudosd  -lpthread
 
 #build the experimental client
-client: client.o kudosd
+client: client.o 
 	gcc client.o -o bin/client
 
 client.o: client.c
@@ -54,6 +57,21 @@ $(SUBDIRS):
 
 #clean
 clean:
-	rm *.o iniparser/*.o proc_maps_master/*.o 
+	rm  -f *.o iniparser/*.o proc_maps_master/*.o 
 
+#install
+#i install the binaries at /opt/kudosJudge, 
+# and create the needed symlinks.
+install:
+	./install.sh
 
+#uninstall: reverse the install process
+uninstall:
+	rm -Rf /opt/kudosJudge;
+	rm /usr/local/bin/kudos*;
+	
+	
+#pack : create a package containing the source code, 
+#		useful for testing in other environments.
+pack:clean
+	tar -zcvf bin/kudosJudge.tar.gz ./

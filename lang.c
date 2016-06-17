@@ -112,10 +112,13 @@ int lang_init(){
 	ramfs_info* ramfs=get_global_ramfs();
 	char * lang_workspace=(char*) malloc(sizeof(char)*(strlen(ramfs->path)+100));
 	sprintf(lang_workspace, "%s/%s",ramfs->path,"lang-workspace");
+	mode_t oldWorkspaceMask=umask(022);
 	if(mkdir(lang_workspace, 0777)!=0 && errno!=EEXIST){
 		debugt("lang"," cannot create languages workspace in ramfs directory");
+		umask(oldWorkspaceMask);
 		return -5;
 	}
+	umask(oldWorkspaceMask);
 	g_lang_workspace=lang_workspace;
 	//
 	return 0;
@@ -137,10 +140,13 @@ int lang_process(char* text, char* langid, int worker_id, char*bin_cmd){
 	char* worker_workspace=(char*)malloc(sizeof(char)*(strlen(g_lang_workspace)+20));
 	if(lang_workspace_inited[worker_id]==0){
 		sprintf(worker_workspace, "%s/%d",g_lang_workspace,worker_id );
+		mode_t oldWorkerMask=umask(0022);
 		if(mkdir(worker_workspace, 0777) && errno!=EEXIST){
 			debugt("lang","cannot create the lang workspace for the worker : %d", worker_id);
+			umask(oldWorkerMask);
 			return -2;
 		}
+		umask(oldWorkerMask);
 		lang_workspace_inited[worker_id]=1;
 	}
 	free(worker_workspace);

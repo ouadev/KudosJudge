@@ -250,6 +250,7 @@ void queue_worker_serv(jug_connection* connection)
 		close(client_sock);
 		return;
 	}
+
 	// SEND TO THE SANDBOX
 	verdict=jug_sandbox_judge(&submission);
 	//	verdict=VERDICT_ACCEPTED;
