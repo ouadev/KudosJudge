@@ -38,3 +38,19 @@ We should always check the license of the libraries we use, in order to own the 
 Platform & development kit
 ----------------------------
 linux kernel >= 3.0, gcc >= 4.7
+
+Development state
+--------------------------
+the project is on hold. I need some contributors to resume the development. 
+the network part of the project needs more serious work.
+the threading and sandboxing/execution parts are relatively stable. some bugs still appear in some versions of Linux.
+
+Credits 
+----------------------------
+ouadimjamal@gmail.com : sandboxing,execution, configuration.
+BeqqiMohammed         : threading/network.
+
+contact
+------------------------------
+please contact if you're intersted in the idea, or wish to contribute so that the project can be deployed and used. 
+contact also if you have questions .
