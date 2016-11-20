@@ -47,8 +47,8 @@ the threading and sandboxing/execution parts are relatively stable. some bugs st
 
 Credits 
 ----------------------------
-ouadimjamal@gmail.com : sandboxing,execution, configuration.
-BeqqiMohammed         : threading/network.
+Ouadim Jamal           : sandboxing,execution, configuration.
+Beqqi Mohammed         : threading/network.
 
 contact
 ------------------------------
