@@ -34,15 +34,6 @@ Notes
 As mentionned above, the goal of KudosJudge is the speed and the ability to manage a lot of requests robustly. That's why we should implement evey idea that will lead to acheive this goal. 
 We should always check the license of the libraries we use, in order to own the right to sell the resulting product. And it's always preferable to do things from scratch. 
 
-what'is done ?
--------------
-To see what's done, you should read the messages in the group, or browse the source code from Bitbucket.org
-
-How to contribute ?
--------------------------
-Git is used to manage the repository of the project in Bitbucket.org. The chosen workflow is (Feature Branch Workflow), that consist of creating a branch for each developer, and to merge the code into the master the developer must open a (Pull Request), so the maintainer and the other developers look into the code to decide if it's ready to be integrated. after integration the developer branch is merged into the master one. to understand how it works with bitbucket please read this tutorial (https://www.atlassian.com/git/tutorials/making-a-pull-request/how-it-works).
-Actually, we don't have yet a working version of the project, so the master branch doesn't make a lot of sens, but it still keeps track of the components of the whole project. to push to your branch from your own computer "git push origin master:yourbranchname", to be tested :).
-To contribute create an account at Bitbucket.org and send me the username.
 
 Platform & development kit
 ----------------------------
