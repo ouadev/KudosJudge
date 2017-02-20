@@ -6,10 +6,6 @@ the daemon should be robust and fast, this will be acheived by using threads to 
 This Judge can be used in a Programming Contests web platform, in that case the judge plays the same role as Mysql Server, and can be used from PHP to process the submissions. It can also be used as a LAN Programming contest judge, in that case a custom server side middleware should be developed to manage the score and the users, and communicate with KudosJudge.
 KudosJudge is a fun project, where contributors aim to improve a service.
 
-Existing technology
----------------------------
-I've done a lot of searching in opensource judges on Github. and all of them are designed to be used in easy environments (small number of requests), and are attached mostly to a PHP frontend, and most of them are not event deamon and are started at each submission. Some judges are developed in Shell, they lack speed and security, and don't benefit from threading.
-
 Components
 ---------------------
 KudosJudge is composed from 4 components : 
@@ -32,18 +28,24 @@ Architecture Overview
 Notes
 ----------
 As mentionned above, the goal of KudosJudge is the speed and the ability to manage a lot of requests robustly. That's why we should implement evey idea that will lead to acheive this goal. 
-We should always check the license of the libraries we use, in order to own the right to sell the resulting product. And it's always preferable to do things from scratch. 
 
-what'is done ?
--------------
-To see what's done, you should read the messages in the group, or browse the source code from Bitbucket.org
-
-How to contribute ?
--------------------------
-Git is used to manage the repository of the project in Bitbucket.org. The chosen workflow is (Feature Branch Workflow), that consist of creating a branch for each developer, and to merge the code into the master the developer must open a (Pull Request), so the maintainer and the other developers look into the code to decide if it's ready to be integrated. after integration the developer branch is merged into the master one. to understand how it works with bitbucket please read this tutorial (https://www.atlassian.com/git/tutorials/making-a-pull-request/how-it-works).
-Actually, we don't have yet a working version of the project, so the master branch doesn't make a lot of sens, but it still keeps track of the components of the whole project. to push to your branch from your own computer "git push origin master:yourbranchname", to be tested :).
-To contribute create an account at Bitbucket.org and send me the username.
 
 Platform & development kit
 ----------------------------
 linux kernel >= 3.0, gcc >= 4.7
+
+Development state
+--------------------------
+the project is on hold. I need some contributors to resume the development. 
+the network part of the project needs more serious work.
+the threading and sandboxing/execution parts are relatively stable. some bugs still appear in some versions of Linux.
+
+Credits 
+----------------------------
+Ouadim Jamal           : sandboxing,execution, configuration.
+Beqqi Mohammed         : threading/network.
+
+contact
+------------------------------
+please contact if you're intersted in the idea, or wish to contribute so that the project can be deployed and used. 
+contact also if you have questions .

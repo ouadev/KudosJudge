@@ -150,6 +150,260 @@ jug_verdict_enum jug_sandbox_judge(jug_submission* submission){
 
 
 /**
+ * jug_sandbox_run()
+ * + the sandbox is supposedly inited
+ * + if cgroups are not used, use setrlimit to limit memory usage
+ *
+ */
+//[main_process/some_thread]
+int jug_sandbox_run(
+		struct run_params* run_params_struct,
+		struct sandbox* sandbox_struct,
+		char* binary_path,
+		char*argv[]){
+	//locals
+	int watcher_pid;
+	int received_bytes=0;
+	int compare_stage=0;
+	//some checking
+	//if the caller didn't want to specify some limits, replace them with the Config's defaults.
+	if(run_params_struct->mem_limit_mb<0)
+		run_params_struct->mem_limit_mb=sandbox_struct->mem_limit_mb_default;
+	if(run_params_struct->time_limit_ms<0)
+		run_params_struct->time_limit_ms=sandbox_struct->time_limit_ms_default;
+
+	//debug: print limits as (cputime,walltime,memory)
+	debugt("watcher","limits (%dms,%dms,%dMB)",
+			run_params_struct->time_limit_ms,
+			sandbox_struct->walltime_limit_ms_default,
+			run_params_struct->mem_limit_mb);
+	//check fd_in a fd_out
+	int fail;
+	int fd_datasource,fd_datasource_dir,fd_datasource_flags,fd_datasource_status;
+	fd_datasource=run_params_struct->fd_datasource;
+	fd_datasource_dir=run_params_struct->fd_datasource_dir;
+
+	if( (fd_datasource_flags=fcntl(fd_datasource,F_GETFD) )<0 ){
+		debugt("jug_sandbox_run","fd_datasource is not valid");
+		return -4;
+	}
+	if((fd_datasource_flags&FD_CLOEXEC) ){
+		debugt("jug_sandbox_run","fd_datasource is declared close-on-exec");
+		return -5;
+	}
+	fd_datasource_status=fcntl(fd_datasource,F_GETFL);
+
+	if( ! (fd_datasource_status&O_RDWR)){
+		if( fd_datasource_dir==0 &&  !(fd_datasource_status&O_RDONLY) ){
+			debugt("jug_sandbox_run","fd_datasource dir 0 is not readible , (%d,%d)",
+					fd_datasource_status&O_RDWR,fd_datasource_status&O_RDONLY);
+			return -6;
+		}
+		if(fd_datasource_dir && !(fd_datasource_status&O_WRONLY)){
+			debugt("jug_sandbox_run","fd_datasource dir 1 is not writable ");
+			return -7;
+		}
+	}
+
+	////init the out pipe
+	///more information on (pipe & stdout buffering) :
+	/// http://www.pixelbeat.org/programming/stdio_buffering/
+	if( pipe(run_params_struct->out_pipe)==-1){
+		debugt("jug_sandbox_run","cannot create output pipe");
+		return -3;
+	}
+	if(pipe(run_params_struct->in_pipe)==-1){
+		debugt("jug_sandbox_run","cannot create input pipe");
+		return -8;
+	}
+	close(run_params_struct->in_pipe[0]);
+
+	if(fd_datasource_dir){
+		fail=dup2(run_params_struct->in_pipe[1],fd_datasource);
+		if(fail==-1){
+			debugt("jug_sandbox_run","cannot dup2 in_pipe: %s",strerror(errno));
+			return -9;
+		}
+	}
+
+	/* receive output at out_pipe[0], */
+	//init the execution state, not started yet.
+
+	//clone inside the sandbox
+	struct clone_child_params* ccp=(struct clone_child_params*)malloc(sizeof(struct clone_child_params)*1);
+	ccp->run_params_struct=run_params_struct;
+	ccp->sandbox_struct=sandbox_struct;
+	ccp->binary_path=binary_path;
+	ccp->argv=argv;
+	char* stack;
+	char *stacktop;
+	int STACK_SIZE=sandbox_struct->stack_size_mb*1000000;
+	stack=(char*)malloc(STACK_SIZE);
+	if(!stack){
+		debugt("jug_sandbox_run","cannot malloc the stack for this submission");
+		return -1;
+	}
+	stacktop=stack;
+	stacktop+=STACK_SIZE;
+	int JUG_CLONE_SANDBOX=CLONE_NEWUTS|CLONE_NEWNET|CLONE_NEWPID|CLONE_NEWNS;
+	watcher_pid=clone(jug_sandbox_child,stacktop,JUG_CLONE_SANDBOX|SIGCHLD,(void*)ccp);
+	if(watcher_pid==-1){
+		debugt("jug_sandbox_run","cannot clone() the submission executer, linux error: %s",strerror(errno));
+		return -2;
+	}
+
+	//set the global inner watcher process id
+	run_params_struct->watcher_pid=watcher_pid;
+	/*
+	 *
+	 * read the output from the submission
+	 *
+	 */
+	int flags=fcntl(run_params_struct->out_pipe[0],F_GETFL,0);
+	fcntl(run_params_struct->out_pipe[0],F_SETFL,flags|O_NONBLOCK);
+	pid_t wpid;
+	int count=0,endoffile=0,compout_detected=0,iw_status,nequal,spawn_succeeded=1;
+	int watcher_alive=1,were_done=0;
+	char buffer[256];
+	short cnfg_kill_on_compout=sandbox_struct->kill_on_compout;
+	jug_sandbox_result watcher_result,comp_result,result;
+
+
+	while(!were_done){
+		//pull watcher state
+		if(watcher_alive){
+			wpid=waitpid(watcher_pid,&iw_status,WNOHANG);
+			if(wpid<0){
+				debugt("spawner","error waiting for the inner watcher");
+				watcher_alive=0;
+			}else if(wpid>0){
+				if(WIFEXITED(iw_status)){
+					//normal exit (voluntary exit)
+					//I use the range (-127,127) to express my exit codes, so that I could
+					// transmit information about errors.
+					char exit_code=WEXITSTATUS(iw_status);
+					if(exit_code<0)
+						spawn_succeeded=0;
+					else{
+						watcher_result=(jug_sandbox_result)exit_code;
+					}
+					debugt("spawner","watcher exited normally, exit code : %d",exit_code);
+					watcher_alive=0;
+
+				}else if(WIFSIGNALED(iw_status)){
+					//killed by a signal
+					debugt("spawner","watcher killed by a signal, signal: %d",WTERMSIG(iw_status));
+					watcher_result=JS_UNKNOWN;
+					watcher_alive=0;
+				}else{
+					debugt("spawner","unhandled event from the watcher");
+					watcher_result=JS_UNKNOWN;
+					watcher_alive=0;
+				}
+			}
+		}
+		//process's available output from the watcher.
+		if(endoffile || compout_detected){
+			if(!watcher_alive)
+				break;
+			else
+				continue;
+		}
+		//use simultaneous read
+		//ps:ublocking read
+		count=read(run_params_struct->out_pipe[0],buffer,255);
+		if(ccp->sandbox_struct->show_submission_output && count!=-1 )
+			write(STDOUT_FILENO,buffer,count);
+		if(count>0){ //some bytes are read
+			nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,compare_stage);
+			if(nequal==0)		comp_result=JS_CORRECT;
+			else if(nequal>0)	comp_result=JS_WRONG;
+			else				comp_result=JS_COMP_ERROR;
+			compare_stage++;
+			//if an inequality is reported by the comparing function, and simultaneous mode is on, kill.
+			if(nequal != 0){
+				compout_detected=1;
+				//communicate with the child via SIGUSR1 signal to inform them we detected false output
+				if(cnfg_kill_on_compout)
+					kill(watcher_pid,SIGUSR1);
+			}
+			//detect too much of output (not test feature)
+			//SIGUSR1 handler will kill the binary and make sure the watcher reports a good execution
+			// with exit(JS_CORRECT). to report the output overflow to sandbox user, we will change the
+			// value of comp_result flag to JS_OUTPUTLIMIT
+			received_bytes+=count;
+			if( (received_bytes/1000000)> ccp->sandbox_struct->output_size_limit_mb_default){
+				debugt("watcher","too much generated output");
+				kill(watcher_pid,SIGUSR1);
+				comp_result=JS_OUTPUTLIMIT;
+			}
+
+		}
+		else if(count==0){//end of file received
+			endoffile=1;
+			nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,-1);
+			if(nequal==0)			comp_result=JS_CORRECT;
+			else if(nequal>0)		comp_result=JS_WRONG;
+			else					comp_result=JS_COMP_ERROR;
+		}else if(count<0){
+			if(errno==EAGAIN){
+				if(	!watcher_alive ){
+					//actually in case the submission is killed or suicide, we won't need to compare at all, but let's do it.
+					//last call to compare_output
+					nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,-1);
+					if(nequal==0)			comp_result=JS_CORRECT;
+					else if(nequal>0)		comp_result=JS_WRONG;
+					else					comp_result=JS_COMP_ERROR;
+					//we're done then
+					were_done=1;
+				}
+				continue;
+			}else{
+				comp_result=JS_PIPE_ERROR;
+				compout_detected=1;
+				//send SIGUSR1
+				if(cnfg_kill_on_compout)
+					kill(watcher_pid,SIGUSR1);
+
+			}
+		}
+
+
+	}
+	//end while (we're done)
+	//fflush(stderr);
+	//fflush(stdout);
+	if(spawn_succeeded){
+		if(watcher_result==JS_CORRECT){
+			result=comp_result;
+		}
+		else result=watcher_result;
+		debugt("spawner","Watcher result : %s",jug_sandbox_result_str(watcher_result));
+		debugt("spawner","Judging result : %s",jug_sandbox_result_str(result));
+	}
+
+	else
+		debugt("spawner","spawning failed before execvp()");
+
+	//result
+	run_params_struct->result=result;
+
+	/*
+	 * Close all opened file descriptors
+	 * Free All Malloced memory areas
+	 */
+
+	close(run_params_struct->out_pipe[0]);
+	close(run_params_struct->out_pipe[1]);
+	//free(ccp->sandbox_struct->chroot_dir);
+	free(ccp);
+	free(stack);
+
+
+	return 0;
+}
+
+/**
  * run in template mode
  */
 // [main_processus/some_thread]
@@ -476,14 +730,12 @@ int jug_sandbox_child(void* arg){
 		debugt("jug_sandbox_child","error remounting sandbox /proc, linux error : %s\n",strerror(errno));
 		exit(-4);
 	}
-	debugt("watcher","/proc remounted succesfully");
 	//remount the /tmp directory, each submission sees its own stuff
 	fail=umount("/tmp");
 	if(fail && errno!=EINVAL){
 		debugt("watcher","cannot umount /tmp : %s",strerror(errno));
 		exit(-9);
 	}
-
 	fail=mount("none","/tmp","tmpfs",MS_NODEV|MS_NOEXEC,NULL);
 	if(fail){
 		debugt("watcher","error mounting /tmp: %s\n",strerror(errno));
@@ -676,7 +928,7 @@ int jug_sandbox_child(void* arg){
 	cpu_rlimit.rlim_max=cpu_rlimit.rlim_cur+2;//2 seconds of margin
 	fail=setrlimit(RLIMIT_CPU,&cpu_rlimit);
 	if(fail){
-		debugt("binary","cannot set cpu rlimit");
+		debugt("jug_sandbox_run","cannot set cpu rlimit");
 		exit(100);
 	}
 	//limit memory usage
@@ -685,7 +937,7 @@ int jug_sandbox_child(void* arg){
 	as_rlimit.rlim_max=as_rlimit.rlim_cur;
 	fail=setrlimit(RLIMIT_AS,&as_rlimit);
 	if(fail){
-		debug("binary","cannot setrlimit Adress Space");
+		debug("jug_sandbox_run","cannot setrlimit Adress Space");
 		exit(101);
 	}
 	//unlimit stack
@@ -696,23 +948,23 @@ int jug_sandbox_child(void* arg){
 	//drop all the priveleges
 	struct passwd* pwd_nobody=getpwnam("nobody");
 	uid_t nobody_id=pwd_nobody->pw_uid;
-	// fail=setgid(pwd_nobody->pw_gid);
-	// if(fail){
-	// 	debugt("binary","error setgid(), exiting ...:%s",strerror(errno));
-	// 	exit(110);
-	// }
+	fail=setgid(pwd_nobody->pw_gid);
+	if(fail){
+		debugt("jug_sandbox_child","error setgid(), exiting ...");
+		exit(110);
+	}
 
-	// fail=setgroups(0,NULL);
-	// if(fail<0){
-	// 	debugt("binary","cannot remove supplementary groups, exiting ...");
-	// 	exit(111);
-	// }
+	fail=setgroups(0,NULL);
+	if(fail<0){
+		debugt("jug_sandbox_child","cannot remove supplementary groups, exiting ...");
+		exit(111);
+	}
 
-	// fail=setuid(pwd_nobody->pw_uid);
-	// if(fail){
-	// 	debugt("binary","fail setuid, exiting ...");
-	// 	exit(112);
-	// }
+	fail=setuid(pwd_nobody->pw_uid);
+	if(fail){
+		debugt("jug_sandbox_child","fail setuid, exiting ...");
+		exit(112);
+	}
 
 
 	if(!setuid(0)){
@@ -1039,7 +1291,7 @@ void jug_sandbox_template_sighandler(int sig){
 	cloned_stacktop=cloned_stack;
 	cloned_stacktop+=STACK_SIZE;
 
-	int JUG_CLONE_SANDBOX=CLONE_NEWUTS|CLONE_NEWNET|CLONE_NEWPID|CLONE_NEWNS|CLONE_NEWUSER;
+	int JUG_CLONE_SANDBOX=CLONE_NEWUTS|CLONE_NEWNET|CLONE_NEWPID|CLONE_NEWNS;
 	//CLONE TO THE WATCHER
 	cloned_pid=clone(jug_sandbox_child,cloned_stacktop,JUG_CLONE_SANDBOX|CLONE_PARENT|SIGCHLD,(void*)ccp);
 	///////////
@@ -1325,7 +1577,7 @@ unsigned long jug_sandbox_cputime_usage(pid_t pid){
 	FILE* file=fopen(stat,"r");
 	if(file==NULL){
 		debugt("js_print_usage","failed to open statm : %s",strerror(errno));
-		return -1;
+		return ;
 	}
 
 	for(i=1;i<=13;i++){

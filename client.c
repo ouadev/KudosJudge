@@ -85,7 +85,7 @@ int main(int argc , char *argv[])
 		puts("KudosClient: recv failed");
 		return 54;
 	}
-	printf("verdict: %s\nrcv_count=%d, strlen_resp=%d\n", response.verdict_s,rcv_count,sizeof(int_response));
+	printf("verdict: %s\nrcv_count=%d, strlen_resp=%ld\n", response.verdict_s,rcv_count,sizeof(int_response));
 
 	close(sock);
 	return 0;

@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include "iniparser/iniparser.h"
 #include "assert.h"
+#include "log.h"
 /**
 * config.h 
 * a set of functions to manage ini config files.

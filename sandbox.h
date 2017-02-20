@@ -44,6 +44,7 @@
 #include "config.h"
 #include "compare.h"
 #include "protocol.h"
+#include "queue.h"
 
 
 #define PIPE_WRITETO 1

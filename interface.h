@@ -1,6 +1,8 @@
 #ifndef H_JUG_INTERFACE
 #define H_JUG_INTERFACE
-
+#include <sys/types.h>
+ #include <sys/socket.h>
+#include <unistd.h>
 /**
  * interface.h
  * the communicatio primitives that the daemon (and eventually a client) uses to communicate.

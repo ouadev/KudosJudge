@@ -6,7 +6,7 @@ everything: kudosd client
 
 #build the kudos deamon
 kudosd: all
-	gcc kudosd.o iniparser/iniparser.o config.o log.o sandbox.o \
+	gcc log.o kudosd.o iniparser/iniparser.o config.o  sandbox.o \
 	compare.o queue.o interface.o protocol.o lang.o ramfs.o \
 	-o bin/kudosd  -lpthread
 
