@@ -6,10 +6,6 @@ the daemon should be robust and fast, this will be acheived by using threads to 
 This Judge can be used in a Programming Contests web platform, in that case the judge plays the same role as Mysql Server, and can be used from PHP to process the submissions. It can also be used as a LAN Programming contest judge, in that case a custom server side middleware should be developed to manage the score and the users, and communicate with KudosJudge.
 KudosJudge is a fun project, where contributors aim to improve a service.
 
-Existing technology
----------------------------
-I've done a lot of searching in opensource judges on Github. and all of them are designed to be used in easy environments (small number of requests), and are attached mostly to a PHP frontend, and most of them are not event deamon and are started at each submission. Some judges are developed in Shell, they lack speed and security, and don't benefit from threading.
-
 Components
 ---------------------
 KudosJudge is composed from 4 components : 
@@ -32,7 +28,6 @@ Architecture Overview
 Notes
 ----------
 As mentionned above, the goal of KudosJudge is the speed and the ability to manage a lot of requests robustly. That's why we should implement evey idea that will lead to acheive this goal. 
-We should always check the license of the libraries we use, in order to own the right to sell the resulting product. And it's always preferable to do things from scratch. 
 
 
 Platform & development kit
