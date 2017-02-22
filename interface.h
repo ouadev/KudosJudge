@@ -1,8 +1,15 @@
 #ifndef H_JUG_INTERFACE
 #define H_JUG_INTERFACE
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/types.h>
  #include <sys/socket.h>
 #include <unistd.h>
+#include "buffer/buffer.h"
+#include "log.h"
+
+#define RECEIVE_SIZE_MAX 500
 /**
  * interface.h
  * the communicatio primitives that the daemon (and eventually a client) uses to communicate.
@@ -23,12 +30,14 @@ typedef struct jug_connection{
 	int client_socket; //client socket
 }jug_connection;
 
+void jug_int_free_connection(jug_connection* connection);
 /**
  * struct int_request
  * an example of structure to use to communicate with the daemon
  * (note: use a serialization framework to send these structures over network;
  * + should recompile client.c if something changed in the definition of this structure
  */
+/*
 typedef struct int_request{
 	int type; //< type of request :
 			//initContestMode (to load testcases and stuff), judgeSubmission, getState (used also to get the verdict)
@@ -48,7 +57,22 @@ typedef struct int_request{
 
 
 }int_request;
+*/
 
+typedef enum {INT_REQ_TYPE_JUDGE, INT_REQ_TYPE_SETFEED} int_request_type;
+typedef enum {INT_REQ_FEEDTYPE_DATA, INT_REQ_FEEDTYPE_REFERENCE} int_request_feed_type;
+typedef struct int_request{
+	int_request_type type;
+	int_request_feed_type in_type;
+	int_request_feed_type out_type;
+	char* sourcecode;
+
+	int in_reference;
+	char* input;
+
+	int out_reference;
+	char* output;
+} int_request;
 
 /**
  * struct int_response
@@ -60,22 +84,73 @@ typedef struct int_response{
 	char verdict_s[60]; //< the verdict in string format.
 } int_response;
 
+
+buffer_t* jug_int_receive(int client_sock);
+int jug_int_decode(buffer_t* buffer, int_request* request);
+void jug_int_free_request(int_request* request);
+
+
+
+/* Protocol Part*/
 /**
- * jug_int_recv
- * @desc	receive a request from client
- * @param	request a pointer to the request buffer to fill
- * @param	client_sock socket
- * @return  0 if success,
- * @note	should be elaborated more to deal with transmission surprises
+ * protocol.h
+ * definition of the submission information, languages , ...
+ * (execution mode, language, test cases, time limit, mem limit, ...)
+ * In other words the protocol of communication is defined here.
+ * this functions are intented to be called by the worker threads after they retreive a submission from
+ * the queue.
+ * @note: this file is like a layer between the (interface/queue), (eventual compiling_layer) and (sandbox)
  */
-int jug_int_recv(int client_sock,int_request* request);
+
 
 /**
- * jug_int_write
- * @desc	write a response structure to scoket
- * @param	client_sock socket
- * @param	response int_response object
+ * supported languages
  */
-int jug_int_write(int client_sock,int_response* response);
+
+typedef enum {LANG_C, LANG_CPP,  LANG_JAVA, LANG_PHP, LANG_PYTHON} jug_lang_enum;
+/**
+ * possible judge verdicts
+ */
+typedef enum { 	VERDICT_ACCEPTED,
+				VERDICT_WRONG,
+				VERDICT_COMPILE_ERROR,
+				VERDICT_TIMELIMIT,
+				VERDICT_MEMLIMIT,
+				VERDICT_OUTPUTLIMIT,
+				VERDICT_RUNTIME,
+				VERDICT_INTERNAL //internal error (judge's mistake)
+				} jug_verdict_enum;
+
+
+/**
+ * the structure that represents the submission. made during communication.
+ */
+
+typedef struct jug_submission
+{
+    char* source;
+    char* input_filename;
+    char* output_filename;
+    int   language;
+    int   time_limit;
+    int   mem_limit;
+    int   thread_id; //propagated to the other parts of the judge (debug only)
+    //debug only
+    char* bin_path;
+} jug_submission;
+
+/**
+ * global stuff
+ */
+
+
+
+/**
+ * methods
+ */
+
+const char* jug_int_verdict_to_string(jug_verdict_enum verdict);
+int jug_int_send_verdict(int client_sock,jug_verdict_enum verdict);
+void jug_int_free_submission(jug_submission* submission);
 
 #endif

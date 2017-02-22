@@ -1,23 +1,23 @@
 # Global Makefile to compile (gcc -c) the libraries used in the project, and its components
-SUBDIRS=iniparser proc_maps_parser
+SUBDIRS=iniparser proc_maps_parser buffer
 
 #buidl everything :  kudosd (daemon) and the experimental client
 everything: kudosd client
 
 #build the kudos deamon
 kudosd: all
-	gcc log.o kudosd.o iniparser/iniparser.o config.o  sandbox.o \
-	compare.o queue.o interface.o protocol.o lang.o ramfs.o \
+	gcc log.o kudosd.o iniparser/iniparser.o buffer/buffer.o config.o  sandbox.o \
+	compare.o queue.o interface.o lang.o feed.o ramfs.o \
 	-o bin/kudosd  -lpthread
 
 #build the experimental client
 client: client.o 
-	gcc client.o -o bin/client
+	gcc client.o  -o bin/client
 
 client.o: client.c
 	gcc -c client.c -o client.o
 #compile root directory
-all: subdirs log.o config.o ramfs.o sandbox.o compare.o queue.o interface.o protocol.o kudosd.o  lang.o
+all: subdirs log.o config.o ramfs.o sandbox.o compare.o queue.o interface.o  kudosd.o  lang.o  feed.o
 	
 kudosd.o: kudosd.c
 	gcc -c kudosd.c -o kudosd.o
@@ -42,12 +42,12 @@ queue.o: queue.c
 	
 interface.o:interface.c
 	gcc -c interface.c -o interface.o
-
-protocol.o:protocol.c
-	gcc -c protocol.c -o protocol.o
 	
 lang.o:lang.c
 	gcc -c lang.c -o lang.o
+
+feed.o:feed.c
+	gcc -c feed.c -o feed.o
 #compile subdirs
 .PHONY: subdirs $(SUBDIRS)
 subdirs: $(SUBDIRS)
@@ -57,7 +57,7 @@ $(SUBDIRS):
 
 #clean
 clean:
-	rm  -f *.o iniparser/*.o proc_maps_master/*.o 
+	rm  -f *.o iniparser/*.o proc_maps_master/*.o  buffer/*.o
 
 #install
 #i install the binaries at /opt/kudosJudge, 

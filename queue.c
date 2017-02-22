@@ -136,10 +136,114 @@ int factor(int x){
 	if(x==0) return 1;
 	return x*factor(x-1);
 }
+void queue_worker_serv(jug_connection* connection){
+	int read_size, read_size_acc=0;
+	int write_size=0;
+	int worker_id;
+	int error=0;
+	int_request request;
 
+	jug_submission submission;
+	jug_verdict_enum verdict;
+	//use interface.h/proroco.h to generate a valid submission in case of a judging request
+	//compile the submission code
+	//run the resulting binary inside the sandbox.
+	//send the client the response object
+	//close connection
+	//FIXME: waste time (0.5s)
+	//sleep(0.5);
+	worker_id=queue_worker_id();
+	//Receive a message from client
+	int client_sock=connection->client_socket;
+	//
+	buffer_t* req_buffer=jug_int_receive(client_sock);
+
+	if(req_buffer==NULL){
+		debugt("queue","error while receiving, worker %d",queue_worker_id());
+		return;
+	}
+	//debugt("queue", "received : \n:%s", buffer_get_string(req_buffer));
+	//TEST:
+	
+
+
+
+	//debugt("queue","request : %s", buffer_get_string(req_buffer));
+	error=jug_int_decode(req_buffer, &request);
+	buffer_free(req_buffer);
+	if(error!=0){
+		debugt("queue", "error while decoding the request, worker %d, error  %d", queue_worker_id(),error );
+		jug_int_send_verdict(client_sock, VERDICT_ACCEPTED);
+		debugt("queue", "verdict sent");
+		return ;
+	}
+	//serve the request
+	if(request.type==INT_REQ_TYPE_JUDGE){
+		if(request.in_type==INT_REQ_FEEDTYPE_REFERENCE){
+			//not implemented yet
+		}else if(request.in_type== INT_REQ_FEEDTYPE_DATA){
+			//
+			char* input_filename=jug_feed_new_file(request.input, worker_id, "input");
+			debugt("queue", "input_filename:%s", input_filename);
+			submission.input_filename=input_filename;
+		}
+
+		if(request.out_type==INT_REQ_FEEDTYPE_REFERENCE){
+			//not implemented yet
+		}else if(request.out_type==INT_REQ_FEEDTYPE_DATA){
+			char* output_filename=jug_feed_new_file(request.output, worker_id, "output");
+			debugt("queue", "output_filename:%s", output_filename);
+			submission.output_filename=output_filename;
+		}
+		//get source code
+		submission.source=(char*)malloc(sizeof(char)*strlen(request.sourcecode)+2);
+		strcpy(submission.source, request.sourcecode);
+		//process the sourcecode
+		submission.bin_path=(char*)malloc(300);
+		error=lang_process(submission.source, "c",worker_id,submission.bin_path);
+		debugt("queue", "lang_process : error %d", error);
+		if(error){
+			debugt("queue"," error at lang_process() : %d",error);
+			jug_int_send_verdict(client_sock,VERDICT_INTERNAL);
+			debugt("queue","worker: %d, verdict:%s",queue_worker_id(),jug_int_verdict_to_string(VERDICT_INTERNAL));
+			close(client_sock);
+			jug_int_free_submission(&submission);
+			jug_int_free_request(&request);
+			return;
+		}
+		//done with the request
+		jug_int_free_request(&request);
+		// SEND TO THE SANDBOX
+		verdict=jug_sandbox_judge(&submission);
+		debugt("queue", "verdict %d", verdict);
+		//	verdict=VERDICT_ACCEPTED;
+		jug_int_free_submission(&submission);
+		
+		//clear feed files ()
+		jug_feed_remove_by_name(submission.input_filename);
+		jug_feed_remove_by_name(submission.output_filename);
+		//TODO: remove the files
+
+		//return the verdict
+		int writen=jug_int_send_verdict(client_sock,verdict);
+		debugt("queue","writen:%d, worker: %d, verdict:%s",writen, queue_worker_id(),jug_int_verdict_to_string(verdict));
+
+		close(client_sock);
+
+		return;
+	}
+	else if(request.type==INT_REQ_TYPE_SETFEED){
+		//not implemented yet
+
+	}
+	//
+
+
+}
 //NOTE : here for now
-void queue_worker_serv(jug_connection* connection)
+void queue_worker_serv_old(jug_connection* connection)
 {
+	/*
 	int read_size, read_size_acc=0;
 	int write_size=0;
 	int worker_id;
@@ -178,7 +282,7 @@ void queue_worker_serv(jug_connection* connection)
 
 
 
-	//compile the sourcecode (is sourcecode is set, transform to a binary to be executed)
+	//compile the sourcecode (if sourcecode is set, transform to a binary to be executed)
 	if(request.sourcecode[0]!='\0'){
 		//	debugt("queue"," ~~~source code~~~~\n%s\n~~~~~~~~~~~", request.sourcecode);
 		debugt("queue","source found in the request");
@@ -268,6 +372,7 @@ void queue_worker_serv(jug_connection* connection)
 	write_size=write(client_sock , &response, sizeof(int_response));
 	//jug_int_write(client_sock, &response);
 	close(client_sock);
+	*/
 }
 
 //get the id of the current worker
@@ -328,6 +433,8 @@ void* queue_worker_main(void* data)
 #endif
 
 			queue_worker_serv(connection);
+			jug_int_free_connection(connection);
+
 #if DEBUG_THREADING
 			thread_debug_snapshot(THREAD_FINISH,"");
 #endif

@@ -14,9 +14,10 @@
 #include <time.h>
 #include "config.h"
 #include "interface.h"
-#include "protocol.h"
 #include "sandbox.h"
 #include "lang.h"
+#include "buffer/buffer.h"
+#include "feed.h"
 
 #define DEBUG_THREADING 0
 #define MAX_DEBUG_THREAD_STATES_COUNT 10000
@@ -100,8 +101,12 @@ void* queue_worker_main(void* data);
 /**
  * the function the worker use to handle the connection affected to him.
  */
-void queue_worker_serv(jug_connection* connection);
+void queue_worker_serv_old(jug_connection* connection);
 /**
+ * the function the worker use to handle the connection affected to him.
+ */
+void queue_worker_serv(jug_connection* connection);
+/*
  * queue_worker_id
  * @desc get the id of the current thread executing this part
  */

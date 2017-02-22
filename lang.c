@@ -137,19 +137,22 @@ Lang* lang_get(char* langid){
 //lang_process
 int lang_process(char* text, char* langid, int worker_id, char*bin_cmd){
 	//init the worker directory in the languages workspace
-	char* worker_workspace=(char*)malloc(sizeof(char)*(strlen(g_lang_workspace)+20));
+	
 	if(lang_workspace_inited[worker_id]==0){
+		char* worker_workspace=(char*)malloc(sizeof(char)*(strlen(g_lang_workspace)+20));
 		sprintf(worker_workspace, "%s/%d",g_lang_workspace,worker_id );
 		mode_t oldWorkerMask=umask(0022);
 		if(mkdir(worker_workspace, 0777) && errno!=EEXIST){
 			debugt("lang","cannot create the lang workspace for the worker : %d", worker_id);
+			free(worker_workspace);
 			umask(oldWorkerMask);
 			return -2;
 		}
 		umask(oldWorkerMask);
 		lang_workspace_inited[worker_id]=1;
+		free(worker_workspace);
 	}
-	free(worker_workspace);
+	
 
 	//get lang
 	Lang* lang=lang_get(langid);
@@ -158,7 +161,7 @@ int lang_process(char* text, char* langid, int worker_id, char*bin_cmd){
 		return -1;
 	}
 	const char* stype[3]={"COMPILED","INTERPRETED","VIRTUAL MACHINE"};
-	debugt("lang-process","submissin language : %s (%s)", lang->label, stype[lang->type]);
+	debugt("lang-process","submission language : %s (%s)", lang->label, stype[lang->type]);
 	//get text
 	ramfs_info* ramfs=get_global_ramfs();
 	char* text_filename=(char*)malloc(sizeof(char)*(strlen(ramfs->path)+50));
@@ -170,6 +173,7 @@ int lang_process(char* text, char* langid, int worker_id, char*bin_cmd){
 	if(lang->type==LANG_COMPILED  || lang->type==LANG_VM){
 		//in file
 		sprintf(text_filename,"%s/%d/Submission.%s", g_lang_workspace,worker_id,lang->ext_compile);
+		debugt("lang-process", "text_filename ; %s", text_filename);
 		umask(S_IWGRP|S_IRGRP|S_IWOTH|S_IROTH);
 		compile_file=fopen(text_filename,"w+");
 		if(compile_file==NULL){
@@ -179,7 +183,8 @@ int lang_process(char* text, char* langid, int worker_id, char*bin_cmd){
 			free(compile_cmdline);
 			return -2;
 		}
-		if(fputs(text,compile_file)<=0){
+		int pp=fputs(text,compile_file);
+		if(pp<=0){
 			debugt("lang","cannot write sourcecode to text_filename");
 			free(text_filename);
 			free(output_filename);
@@ -193,12 +198,13 @@ int lang_process(char* text, char* langid, int worker_id, char*bin_cmd){
 			sprintf(output_filename,"%s/%d/Submission.%s",g_lang_workspace,worker_id, lang->ext_vm);
 		}else{//just compiling directly to a binary
 			sprintf(output_filename,"%s/%d/Submission",g_lang_workspace, worker_id);
+			debugt("lang", "im here:%s", output_filename);
 		}
 		//launch complining
 		sprintf(compile_cmdline,lang->cmd_compile, text_filename, output_filename);
+		debugt("lang", "compile_cmdline ; %s", compile_cmdline);
 //		debugt("lang-process", "compile final cmd: %s", compile_cmdline);
 		system(compile_cmdline);
-
 		//check if the file is generated : it may not be always true
 		if(stat(output_filename,&st) != 0){
 			debugt("lang","cannot fine the generated file : %s",output_filename);
@@ -208,6 +214,7 @@ int lang_process(char* text, char* langid, int worker_id, char*bin_cmd){
 			fclose(compile_file);
 			return -3;
 		}
+		
 		//else delete
 		unlink(text_filename);
 	}

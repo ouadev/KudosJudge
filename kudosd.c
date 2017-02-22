@@ -21,7 +21,6 @@
 #include "log.h"
 #include "interface.h"
 #include "queue.h"
-#include "protocol.h"
 #include "sandbox.h"
 #include "ramfs.h"
 #include "lang.h"
@@ -276,7 +275,14 @@ int main(int argc, char* argv[]){
 	}
 	kjd_log("Languages are ready");
 	//lang_print();
-
+	///////////////////////////
+	///// init feed store /////
+	/////////////////////////
+	error=jug_feed_init();
+	if(error!=0){
+		kjd_log("Problem initializing feed store");
+		return -558;
+	}
 	/////////////////////
 	//setup tcp server//
 	//////////////////
