@@ -21,6 +21,8 @@
 #include "config.h"
 #include "ramfs.h"
 
+#include "interface.h" //not good, may be submission should be declared in its own file.
+
 #define  LANG_WORKERS_MAX_NBR 40
 typedef enum{LANG_COMPILED, LANG_INTERPRETED, LANG_VM} lang_type;
 
@@ -63,8 +65,17 @@ int lang_init();
  * @param langid the id of the language to use
  * @param worker_id the id of the worker
  * @param bin_cmd the command to be executed to run the resulting binary (ie: python out.py)
+ * @param output_exec the path to the output of the bin_cmd command.
  */
-int lang_process(char* text, char* langid, int worker_id, char*bin_cmd);
+
+int lang_process(jug_submission* submission , char* langid, int worker_id);
+
+/**
+*
+* lang_remove_binary()
+* removes a binary after the end of execution inside the sandbox.
+*/
+void lang_remove_binary(jug_submission submission);
 /**
  * returns the Lang structure from an id
  * @return Lang structure, NULL if not found

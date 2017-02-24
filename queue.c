@@ -153,6 +153,7 @@ void queue_worker_serv(jug_connection* connection){
 	//FIXME: waste time (0.5s)
 	//sleep(0.5);
 	worker_id=queue_worker_id();
+	submission.thread_id=worker_id;
 	//Receive a message from client
 	int client_sock=connection->client_socket;
 	//
@@ -199,24 +200,30 @@ void queue_worker_serv(jug_connection* connection){
 		submission.source=(char*)malloc(sizeof(char)*strlen(request.sourcecode)+2);
 		strcpy(submission.source, request.sourcecode);
 		//process the sourcecode
-		submission.bin_path=(char*)malloc(300);
-		error=lang_process(submission.source, "c",worker_id,submission.bin_path);
-		debugt("queue", "lang_process : error %d", error);
+		
+		
+		error=lang_process(&submission, "c",worker_id);
+		
 		if(error){
 			debugt("queue"," error at lang_process() : %d",error);
-			jug_int_send_verdict(client_sock,VERDICT_INTERNAL);
+			jug_verdict_enum err_verdict=  error==-3? VERDICT_COMPILE_ERROR:VERDICT_INTERNAL;;
+			jug_int_send_verdict(client_sock,err_verdict);
 			debugt("queue","worker: %d, verdict:%s",queue_worker_id(),jug_int_verdict_to_string(VERDICT_INTERNAL));
 			close(client_sock);
 			jug_int_free_submission(&submission);
 			jug_int_free_request(&request);
 			return;
 		}
+
 		//done with the request
 		jug_int_free_request(&request);
+
 		// SEND TO THE SANDBOX
 		verdict=jug_sandbox_judge(&submission);
 		debugt("queue", "verdict %d", verdict);
-		//	verdict=VERDICT_ACCEPTED;
+		//	free resources
+		lang_remove_binary(submission);
+
 		jug_int_free_submission(&submission);
 		
 		//clear feed files ()

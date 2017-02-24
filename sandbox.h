@@ -118,6 +118,8 @@ struct run_params{
 	int fd_datasource;	///< where the submission acquire its inputs, it can be either in or out
 	int fd_datasource_dir;	///< is it a fd where the user writes (1), or an fd to be read from by the Executer (0)
 
+	int datasource_size; ///< size of the file where we get the input.
+
 	int fd_output_ref;		///< file descriptor where we get the correct output, the user should manager close() of this fd
 	//if template mode is used, this function should be
 	// mapped in main process VM before calling jug_sandbox_template_init()
@@ -307,12 +309,6 @@ int jug_sandbox_run_tpl(
 		char*argv[],
 		int thread_order);
 
-/**
- * jug_sandbox_child_empty
- * @desc equivalent of jug_sandbox_child in template mode
- */
-
-int jug_sandbox_child_tpl(void* arg);
 
 /**
  * jug_sandbox_template_term

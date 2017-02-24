@@ -66,7 +66,7 @@ int main(int argc , char *argv[])
 		return 1;
 	}
 
-	puts("KudosClient: Connected\n");
+	puts("KudosClient: Connected");
 	
 
 	//request

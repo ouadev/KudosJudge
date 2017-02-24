@@ -135,8 +135,10 @@ typedef struct jug_submission
     int   time_limit;
     int   mem_limit;
     int   thread_id; //propagated to the other parts of the judge (debug only)
-    //debug only
-    char* bin_path;
+    //exec stuff
+    int   interpreted;
+    char* bin_cmd; //the command to execute
+    char* bin_path; //the path to the file to be executed/interpreted
 } jug_submission;
 
 /**

@@ -122,6 +122,7 @@ void jug_int_free_submission(jug_submission* submission){
 	free(submission->output_filename);
 	free(submission->source);
 	free(submission->bin_path);
+	free(submission->bin_cmd);
 }
 
 
@@ -164,7 +165,7 @@ int jug_int_send_verdict(int client_sock,jug_verdict_enum verdict){
 	char hr_vedict[50];
 	sprintf(hr_vedict, "%s", jug_int_verdict_to_string(verdict));
 	sprintf(response, "%d\n%s", (int)strlen(hr_vedict), hr_vedict);
-	debugt("interface", "response text : \n %s", response);
+	//debugt("interface", "response text : \n %s", response);
 	//end
 
 	int length=strlen(response);

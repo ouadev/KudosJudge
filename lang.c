@@ -135,7 +135,8 @@ Lang* lang_get(char* langid){
 }
 
 //lang_process
-int lang_process(char* text, char* langid, int worker_id, char*bin_cmd){
+//, char*bin_cmd, char* output_exec
+int lang_process(jug_submission* submission, char* langid, int worker_id){
 	//init the worker directory in the languages workspace
 	
 	if(lang_workspace_inited[worker_id]==0){
@@ -183,7 +184,7 @@ int lang_process(char* text, char* langid, int worker_id, char*bin_cmd){
 			free(compile_cmdline);
 			return -2;
 		}
-		int pp=fputs(text,compile_file);
+		int pp=fputs(submission->source,compile_file);
 		if(pp<=0){
 			debugt("lang","cannot write sourcecode to text_filename");
 			free(text_filename);
@@ -198,20 +199,21 @@ int lang_process(char* text, char* langid, int worker_id, char*bin_cmd){
 			sprintf(output_filename,"%s/%d/Submission.%s",g_lang_workspace,worker_id, lang->ext_vm);
 		}else{//just compiling directly to a binary
 			sprintf(output_filename,"%s/%d/Submission",g_lang_workspace, worker_id);
-			debugt("lang", "im here:%s", output_filename);
+
 		}
 		//launch complining
 		sprintf(compile_cmdline,lang->cmd_compile, text_filename, output_filename);
-		debugt("lang", "compile_cmdline ; %s", compile_cmdline);
+
 //		debugt("lang-process", "compile final cmd: %s", compile_cmdline);
+		unlink(output_filename);
 		system(compile_cmdline);
+
 		//check if the file is generated : it may not be always true
 		if(stat(output_filename,&st) != 0){
-			debugt("lang","cannot fine the generated file : %s",output_filename);
+			debugt("lang","cannot find the generated file : %s",output_filename);
 			free(text_filename);
 			free(output_filename);
 			free(compile_cmdline);
-			fclose(compile_file);
 			return -3;
 		}
 		
@@ -226,14 +228,21 @@ int lang_process(char* text, char* langid, int worker_id, char*bin_cmd){
 		sprintf(output_filename, "%s/%d/Submission.%s", g_lang_workspace , worker_id, lang->ext_interpr);
 
 	}
-	if(lang->type==LANG_COMPILED){
-		sprintf(bin_cmd,"%s", output_filename);
-	}else if( lang->type==LANG_VM){
-		sprintf(bin_cmd, lang->cmd_vm, output_filename );
-	}else if (lang->type==LANG_INTERPRETED){
-		sprintf(bin_cmd, lang->cmd_interpr, output_filename);
-	}
 
+	submission->bin_cmd=(char*)malloc(300);
+	submission->bin_path=(char*)malloc(300);
+	if(lang->type==LANG_COMPILED){
+		sprintf(submission->bin_cmd,"%s", output_filename);
+		submission->interpreted=0;
+	}else if( lang->type==LANG_VM){
+		sprintf(submission->bin_cmd, lang->cmd_vm, output_filename );
+		submission->interpreted=1;
+	}else if (lang->type==LANG_INTERPRETED){
+		sprintf(submission->bin_cmd, lang->cmd_interpr, output_filename);
+		submission->interpreted=1;
+	}
+	//set the output filename
+	strcpy(submission->bin_path, output_filename);
 	//cleanup
 	free(text_filename);
 	free(output_filename);
@@ -243,6 +252,11 @@ int lang_process(char* text, char* langid, int worker_id, char*bin_cmd){
 	return 0;
 
 
+}
+
+//lang_remove_binary
+void lang_remove_binary(jug_submission submission){
+	unlink(submission.bin_path);
 }
 
 //lang_print

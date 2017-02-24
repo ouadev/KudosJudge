@@ -73,6 +73,7 @@ jug_verdict_enum jug_sandbox_judge(jug_submission* submission){
 	pid_t pid,c_pid;
 	int ret,status;
 	int infd,rightfd;
+	struct stat datasource_st;
 	jug_sandbox_result result;
 
 	infd=open(		submission->input_filename,O_RDWR);
@@ -83,6 +84,8 @@ jug_verdict_enum jug_sandbox_judge(jug_submission* submission){
 		debugt("sandbx","right_fd = %s",submission->output_filename);
 		return VERDICT_INTERNAL;
 	}
+	//get the size of the datasource file
+	stat(submission->input_filename, &datasource_st);
 	//change the config.ini default parameters with your own stuff
 	struct run_params runp;
 	runp.mem_limit_mb=-1;//1220000;
@@ -91,6 +94,7 @@ jug_verdict_enum jug_sandbox_judge(jug_submission* submission){
 	runp.compare_output=compare_output;
 	runp.fd_output_ref=rightfd;
 	runp.thread_order=submission->thread_id;
+	runp.datasource_size=datasource_st.st_size;
 
 	int thread_order=submission->thread_id;
 	//args
@@ -232,8 +236,9 @@ int jug_sandbox_run_tpl(
 	char buffer[256];
 	short cnfg_kill_on_compout=sandbox_struct->kill_on_compout;
 	int _datasource_transfer_size=40000; //40K, actually up to 64K is possible (linux's pipe buffer size).
-	int ds_sent=0;
+	int ds_sent=0, ds_sent_acc=0;
 	int fff=0;
+	int datasource_file_size=0;
 	jug_sandbox_result watcher_result,comp_result,result;
 	//unblock read from the out_pipe
 	flags=fcntl(run_params_struct->out_pipe[0],F_GETFL,0);
@@ -249,6 +254,7 @@ int jug_sandbox_run_tpl(
 	if(flags<0){
 		debugt("run_tpl","in_pipe[PIPE_WRITETO] is invalid : %s",strerror(errno));
 		debugt("run_tpl","in_pipe[PIPE_WRITETO]==%d", run_params_struct->in_pipe[PIPE_WRITETO]);
+		debugt("run_tpl", "thread_id : %d", thread_order);
 		int j=0;
 		for(j=0;j<10;j++){
 			debugt("run_tpl","io_pipes_in[%d][PIPE_WRITETO]==%d",j,  io_pipes_in[j][PIPE_WRITETO] );
@@ -260,7 +266,7 @@ int jug_sandbox_run_tpl(
 		debugt("run_tpl","fd_datasource is invalid: %s",strerror(errno));
 		return -3;
 	}
-
+	
 	//
 	while(!were_done){
 		//pull watcher state
@@ -307,32 +313,53 @@ int jug_sandbox_run_tpl(
 		}
 		//write to the watcher (template clone)
 		//NOTE:think about jumping over this call if we eat up all the fd_datasource.
-		ds_sent=sendfile(
-				run_params_struct->in_pipe[PIPE_WRITETO],
-				run_params_struct->fd_datasource,
-				NULL,_datasource_transfer_size
-		);
+		if(ds_sent_acc < run_params_struct->datasource_size){
+			ds_sent=sendfile(
+					run_params_struct->in_pipe[PIPE_WRITETO],
+					run_params_struct->fd_datasource,
+					NULL,_datasource_transfer_size
+			);
 
-		//if error writing: same bahaviour as False Comparing
-		//		if(thread_order==1 && ds_sent>=0)
-		//			debugt("run_tpl","order=%d, sendfile=%d",thread_order,ds_sent);
-		if(ds_sent<0 && ds_sent!=EAGAIN){
-			debugt("run_tpl","senfile() error : %s",strerror(errno));
-			comp_result=JS_PIPE_ERROR;
-			compout_detected=1;
-			//send SIGUSR1
-			if(cnfg_kill_on_compout)
-				kill(watcher_pid,SIGUSR1);
+			if(ds_sent>=0){
+				ds_sent_acc+=ds_sent;
+				debugt("run_tpl", "feeden to watcher (sandbox) : %d", ds_sent);
+			}
+			//if error writing: same bahaviour as False Comparing
+			//		if(thread_order==1 && ds_sent>=0)
+			//			debugt("run_tpl","order=%d, sendfile=%d",thread_order,ds_sent);
+			if(ds_sent<0 && ds_sent!=EAGAIN){
+				debugt("run_tpl","senfile() error : %s",strerror(errno));
+				comp_result=JS_PIPE_ERROR;
+				compout_detected=1;
+				//send SIGUSR1
+				if(cnfg_kill_on_compout)
+					kill(watcher_pid,SIGUSR1);
+			}
+			//close the stdin pipe after sending all the data.
+			if(ds_sent_acc >= run_params_struct->datasource_size){
+				if( close(run_params_struct->in_pipe[PIPE_WRITETO])== -1 ){
+					debugt("run_tpl", "cannot close writing end of stdin pipe");
+				}
+				debugt("run_tpl", "closing the pipe of stdin");
+			}
 		}
+
+
 		//use simultaneous read
 		//ps:ublocking read
 		count=read(run_params_struct->out_pipe[PIPE_READFROM],buffer,255);
 
-		//		if( count>=0)
-		//			debugt("run_tpl","order=%d, read count=%d",run_params_struct->thread_order,count);
+				if( count>=0)
+					debugt("run_tpl","order=%d, read count=%d",run_params_struct->thread_order,count);
 
-		if(ccp->sandbox_struct->show_submission_output && count!=-1 )
-			write(STDOUT_FILENO,buffer,count);
+		if(ccp->sandbox_struct->show_submission_output && count!=-1 ){
+			//write(STDOUT_FILENO,"~~~~~~~~~\n",10);
+			//write(STDOUT_FILENO,buffer,count);
+			buffer[count]='\0';
+
+			debugt("stdout", "%s", buffer);
+			//write(STDOUT_FILENO,"~~~~~~~~~\n",10);
+		}
 		if(count>0){ //some bytes are read
 			nequal=ccp->run_params_struct->compare_output(ccp->run_params_struct->fd_output_ref,buffer,count,compare_stage);
 			if(nequal==0)		comp_result=JS_CORRECT;
@@ -354,7 +381,7 @@ int jug_sandbox_run_tpl(
 			// value of comp_result flag to JS_OUTPUTLIMIT
 			received_bytes+=count;
 			if( (received_bytes/1000000)> ccp->sandbox_struct->output_size_limit_mb_default){
-				debugt("watcher","too much generated output");
+				debugt("rn_tpl","too much generated output");
 				kill(watcher_pid,SIGUSR1);
 				comp_result=JS_OUTPUTLIMIT;
 			}
@@ -938,6 +965,13 @@ int jug_sandbox_template(void*arg){
 	signal(SIGUSR1,jug_sandbox_template_sighandler);
 	close(template_pipe_rx[PIPE_READFROM]);
 	close(template_pipe_tx[PIPE_WRITETO]);
+
+	//in order to be able to transfer EOF to the receiving process, all the writing ends of
+	// the 'stdin pipe' aka Input Transferring Pipe, should be closed.
+	//EOF is only transmitted after all the writing fds are closed.
+	for (int i=0; i<THREADS_MAX; i++){
+		close(io_pipes_in[i][PIPE_WRITETO]);
+	}
 	//shared mem
 	key_t key=2210;
 	int shmid;
@@ -974,15 +1008,7 @@ int jug_sandbox_template(void*arg){
 	return 0;
 }
 
-//jug_sandbox_child_empty
-int jug_sandbox_child_tpl(void* arg){
-	int fail=0;
-	//
-	debugt("watcher_tpl","Starting...");
-	struct clone_child_params* ccp=(struct clone_child_params*)arg;
 
-	return (int)JS_CORRECT;
-}
 
 // jug_sandbox_template_sighandler (\\[template_process:sighandler])
 void jug_sandbox_template_sighandler(int sig){
