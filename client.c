@@ -171,7 +171,7 @@ char* kudosdjudge_forge_dd(char* source_filename, char* input_filename, char* ou
 	FILE* output_file=fopen(output_filename, "r");
 
 	char source[1000];source[0]='\0';
-	char input[4000];input[0]='\0';
+	char input[1000001];input[0]='\0';
 	char output[4000];output[0]='\0';
 
 	char block_buffer[1000];

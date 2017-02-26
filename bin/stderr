@@ -1,1 +1,1 @@
-cat /tmp/kudosd-stderr-$1*
+cat /tmp/kudosd-stderr-$1* | tail -n 40

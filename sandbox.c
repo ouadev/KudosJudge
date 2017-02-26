@@ -327,7 +327,7 @@ int jug_sandbox_run_tpl(
 			//if error writing: same bahaviour as False Comparing
 			//		if(thread_order==1 && ds_sent>=0)
 			//			debugt("run_tpl","order=%d, sendfile=%d",thread_order,ds_sent);
-			if(ds_sent<0 && ds_sent!=EAGAIN){
+			if(ds_sent<0 && errno!=EAGAIN){
 				debugt("run_tpl","senfile() error : %s",strerror(errno));
 				comp_result=JS_PIPE_ERROR;
 				compout_detected=1;
