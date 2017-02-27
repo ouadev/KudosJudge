@@ -322,7 +322,7 @@ int jug_sandbox_run_tpl(
 
 			if(ds_sent>=0){
 				ds_sent_acc+=ds_sent;
-				debugt("run_tpl", "feeden to watcher (sandbox) : %d", ds_sent);
+				//debugt("run_tpl", "feeden to watcher (sandbox) : %d", ds_sent);
 			}
 			//if error writing: same bahaviour as False Comparing
 			//		if(thread_order==1 && ds_sent>=0)
@@ -657,7 +657,7 @@ int jug_sandbox_child(void* arg){
 					close(binary_input_pipe[PIPE_WRITETO]);
 					exit(-22);
 				}else if(splice_size>0) {
-					debugt("watcher", "transferred to Binary : %d", (int)splice_size);
+					//debugt("watcher", "transferred to Binary : %d", (int)splice_size);
 				}
 				if(splice_size>=0){
 						splice_size_acc += splice_size;

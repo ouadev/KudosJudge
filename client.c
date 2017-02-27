@@ -186,8 +186,11 @@ char* kudosdjudge_forge_dd(char* source_filename, char* input_filename, char* ou
 
 	char source[1000];source[0]='\0';
 
-	
-	char* input =(char*)malloc(sizeof(char)* 10000001);
+	fseek(input_file, 0L, SEEK_END);
+	ssize_t input_file_size=ftell(input_file);
+	rewind(input_file);
+
+	char* input =(char*)malloc(sizeof(char)* (input_file_size + 1));
 	input[0]='\0';
 	
 	char output[4000];output[0]='\0';

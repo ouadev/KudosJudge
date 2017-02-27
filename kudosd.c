@@ -24,7 +24,7 @@
 #include "sandbox.h"
 #include "ramfs.h"
 #include "lang.h"
-
+#include "config.h"
 
 
 typedef enum {DAEMON_ACTION_START,DAEMON_ACTION_STOP,DAEMON_ACTION_RESTART,DAEMON_ACTION_STATE} daemon_action_enum;
@@ -50,6 +50,8 @@ int main(int argc, char* argv[]){
 	int tmpfile_exists=0,daemon_running=0, tmp_read=0;
 	char tmppid_str[10], proc_daemon[50];
 	int complete_to_daemon=0;
+
+	time_t stime;
 	//set needed environment variable
 	error=setenv(  "JUG_ROOT" , "/opt/kudosJudge", 0);
 	if(error<0){
@@ -182,11 +184,14 @@ int main(int argc, char* argv[]){
 				printf("error during shutdown operation, error %d",8);
 				exit(8);
 			}
-			if( unlink(tmp_path)==-1){
-				//remove the tmp file
-				printf("Internal Error : 9\n");
-				exit(9);
-			}
+			//wait on the tmp file to be deleted (7 seconds)
+			stime=time(NULL);
+			while( (time(NULL)-stime)< 7 && access(tmp_path, F_OK)!=-1) {};
+			if( access(tmp_path, F_OK) != -1){
+				printf("Failed to stop, timeout\n");
+				exit(13);
+			} 
+			printf("Daemon Stopped\n");
 		}
 		//start
 		complete_to_daemon=1;
@@ -204,10 +209,10 @@ int main(int argc, char* argv[]){
 	if(error==100){
 		printf("starting ...\n");
 		//still in the parent
-		time_t stime = time(NULL);
+		stime = time(NULL);
 		while((time(NULL) - stime) < 10 && access(tmp_path, F_OK)==-1) {};
-		if( (time(NULL) - stime)>=10){
-			printf("Failed to start the daemon, Timout");
+		if( access(tmp_path, F_OK) == -1){
+			printf("Failed to start the daemon, Timout\n");
 			exit(12);
 		}
 		//file exists get the final daemon pid
@@ -216,12 +221,16 @@ int main(int argc, char* argv[]){
 			printf("Internal Error : 2\n");
 			exit(10);
 		}
-		if( (tmp_read=fread(tmppid_str,1,50,tmpfile_pid) )==-1){
+
+		while( (tmp_read=fread(tmppid_str, 1, 50 , tmpfile_pid))==0) {};
+		if(tmp_read<0){
 			printf("Internal Error : 3\n");
 			exit(11);
 		}
+
 		tmppid_str[10]='\0';
 		daemon_pid=(pid_t)atoi(tmppid_str);
+		//printf("deamon pid read : %d \n", daemon_pid);
 		//check this pid
 		sprintf(proc_daemon,"/proc/%d",daemon_pid);
 		error=stat(proc_daemon,&daemon_proc_stat);
@@ -230,6 +239,7 @@ int main(int argc, char* argv[]){
 				printf("Internal Error : 5\n");
 				exit(5);
 			}
+			printf("stat returned -1 : %s\n", strerror(errno));
 			daemon_running=0;
 		}else{
 			//daemon is running.
@@ -244,11 +254,22 @@ int main(int argc, char* argv[]){
 
 	}
 	//redirect stderr debug to
-	char stderr_tmpfile[40];
-	char stdout_tmpfile[40];
-	sprintf(stderr_tmpfile,"/tmp/kudosd-stderr-%d",getpid());
-	sprintf(stdout_tmpfile,"/tmp/kudosd-stdout-%d",getpid());
-	freopen(stderr_tmpfile,"w+",stderr);
+	char* redirect_value_str;
+	if( (redirect_value_str=  jug_get_config("Executer","redirect_stderr") )==NULL){
+		printf("Cannot read config : redirect_stderr\n");
+		exit(12);
+	}
+	if( atoi(redirect_value_str)==1){
+		char stderr_tmpfile[40];
+		sprintf(stderr_tmpfile,"/tmp/kudosd-stderr-%d",getpid());
+		freopen(stderr_tmpfile,"w+",stderr);
+	}else{
+		freopen("/dev/null","w+", stderr);
+	}
+	
+
+	///char stdout_tmpfile[40];
+	//sprintf(stdout_tmpfile,"/tmp/kudosd-stdout-%d",getpid());
 	//freopen(stdout_tmpfile,"w+",stdout);
 
 	//////////////////////////

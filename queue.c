@@ -212,7 +212,7 @@ void queue_worker_serv(jug_connection* connection){
 			debugt("queue"," error at lang_process() : %d",error);
 			jug_verdict_enum err_verdict=  error==-3? VERDICT_COMPILE_ERROR:VERDICT_INTERNAL;;
 			jug_int_send_verdict(client_sock,err_verdict);
-			debugt("queue","worker: %d, verdict:%s",queue_worker_id(),jug_int_verdict_to_string(VERDICT_INTERNAL));
+			debugt("queue","worker: %d, verdict:%s",queue_worker_id(),jug_int_verdict_to_string(err_verdict));
 			close(client_sock);
 			jug_int_free_submission(&submission);
 			jug_int_free_request(&request);
@@ -227,12 +227,13 @@ void queue_worker_serv(jug_connection* connection){
 		debugt("queue", "verdict %d", verdict);
 		//	free resources
 		lang_remove_binary(submission);
-
-		jug_int_free_submission(&submission);
-		
 		//clear feed files ()
 		jug_feed_remove_by_name(submission.input_filename);
 		jug_feed_remove_by_name(submission.output_filename);
+		
+		jug_int_free_submission(&submission);
+		
+
 		//TODO: remove the files
 
 		//return the verdict

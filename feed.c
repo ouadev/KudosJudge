@@ -36,7 +36,7 @@ char* jug_feed_new_file(char* content, int worker_id, const char* tag){
 	}
 	int pp=fputs(content,feedfile);
 	if(pp<=0){
-		debugt("lang","cannot write sourcecode to text_filename");
+		debugt("feed","cannot write sourcecode to text_filename");
 		free(filename);
 		fclose(feedfile);
 		return NULL;
@@ -54,5 +54,8 @@ char* jug_feed_new_file(char* content, int worker_id, const char* tag){
 
 
 void jug_feed_remove_by_name(char* filename) {
-	unlink(filename);
+	int error=unlink(filename);
+	if(error<0){
+		debugt("feed", "cannot remove %s, error : %s", filename, strerror(errno));
+	}
 }

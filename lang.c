@@ -168,6 +168,10 @@ int lang_process(jug_submission* submission, char* langid, int worker_id){
 	char* text_filename=(char*)malloc(sizeof(char)*(strlen(ramfs->path)+50));
 	char* output_filename=(char*)malloc(sizeof(char)*(strlen(ramfs->path)+50));
 	char* compile_cmdline=(char*)malloc(sizeof(char)*(strlen(ramfs->path)+200));
+
+	submission->bin_cmd=(char*)malloc(300);
+	submission->bin_path=(char*)malloc(300);
+
 	FILE* compile_file=NULL;
 	struct stat st;
 	//COMPILED & VM languages need a compiling layer
@@ -229,8 +233,7 @@ int lang_process(jug_submission* submission, char* langid, int worker_id){
 
 	}
 
-	submission->bin_cmd=(char*)malloc(300);
-	submission->bin_path=(char*)malloc(300);
+	
 	if(lang->type==LANG_COMPILED){
 		sprintf(submission->bin_cmd,"%s", output_filename);
 		submission->interpreted=0;
