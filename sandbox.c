@@ -337,10 +337,11 @@ int jug_sandbox_run_tpl(
 			}
 			//close the stdin pipe after sending all the data.
 			if(ds_sent_acc >= run_params_struct->datasource_size){
-				if( close(run_params_struct->in_pipe[PIPE_WRITETO])== -1 ){
-					debugt("run_tpl", "cannot close writing end of stdin pipe");
-				}
-				debugt("run_tpl", "closing the pipe of stdin");
+				//do nothing, everything is taken care of in the Watcher
+				// if( close(run_params_struct->in_pipe[PIPE_WRITETO])== -1 ){
+				// 	debugt("run_tpl", "cannot close writing end of stdin pipe");
+				// }
+				// debugt("run_tpl", "closing the pipe of stdin");
 			}
 		}
 
@@ -457,7 +458,8 @@ int jug_sandbox_run_tpl(
 //reside@[main_process], run@[template_forked_process|watcher_process]
 int jug_sandbox_child(void* arg){
 	int fail=0;
-	//
+	
+
 	debugt("watcher","Starting...");
 
 	//
@@ -524,16 +526,52 @@ int jug_sandbox_child(void* arg){
 	}
 	//	pipe stuff, doing it in InnerWatcher side
 	//	redirect stdout to the output transferring pipe
-	while (1){
-		fail=dup2(ccp->run_params_struct->out_pipe[1],STDOUT_FILENO);
-		if(fail==-1){
-			debugt("watcher","cannot dup2 the output of the pipe : %s",strerror(errno));
-			if(errno==EINTR)
-				debugt("watcher","interruption");
-			else return -5;
-		}else break;
+	fail=dup2(ccp->run_params_struct->out_pipe[1],STDOUT_FILENO);
+	if(fail==-1){
+		debugt("watcher","cannot dup2 the output of the pipe : %s",strerror(errno));
+		if(errno==EINTR)
+			debugt("watcher","interruption");
+		else return -5;
 	}
+	fail=close(ccp->run_params_struct->out_pipe[1]);
+	if(fail==-1) debugt("XXXXXXXXXX", "close failed 1 : %s", strerror(errno));
 
+	//fearture-test
+	int binary_input_pipe[2];
+	int flags;
+	signal(SIGPIPE,watcher_sig_handler);
+
+	fail=pipe(binary_input_pipe);
+	if(fail==-1){
+		debugt("watcher", "cannot create the input pipe to Binary : %s", strerror(errno));
+		exit(-9);
+	}
+	debugt("watcher", "binary_input_pipe (%d, %d)", binary_input_pipe[0], binary_input_pipe[1]);
+	//link Binary input to the reading end of the pipe.
+	fail=dup2(binary_input_pipe[PIPE_READFROM], STDIN_FILENO);
+	debugt("watcher", "binary_input_pipe[0] is dup2 to %d", fail);
+
+
+	//close(binary_input_pipe[PIPE_READFROM]);
+
+	//check the writing end of our binary pipe
+	flags=fcntl(binary_input_pipe[PIPE_WRITETO],F_GETFD);
+	if(flags<0){
+		debugt("watch", "binary_input_pipe[PIPE_WRITETO] is invalid");
+		exit(-50);
+	}
+	//ublock write to binary pipe
+	flags=fcntl(binary_input_pipe[PIPE_WRITETO],F_GETFL,0);
+	fcntl(binary_input_pipe[PIPE_WRITETO],F_SETFL,flags|O_NONBLOCK);
+
+ 	flags=fcntl(binary_input_pipe[PIPE_WRITETO],F_GETFD);
+	if(flags<0){
+		debugt("watch", "binary_input_pipe[PIPE_WRITETO] is invalid");
+		exit(-45);
+	}
+	//we will read from in_pipe[0] and write to binary_input_pipe[1].
+	//we will close binary_input_pipe[1] when all the in-feed is consumed.
+	/*
 	//if the user provides a direct fd to read from, redirect the stdin to it
 	if(ccp->run_params_struct->fd_datasource_dir==0){
 		dup2(ccp->run_params_struct->fd_datasource,STDIN_FILENO);
@@ -542,22 +580,34 @@ int jug_sandbox_child(void* arg){
 	}else{
 		dup2(ccp->run_params_struct->in_pipe[0],STDIN_FILENO);
 	}
+	*/
 
-	//the watcher won't and shouldn't use them
-	//(close() only releases the file descriptor number and not the resource behind)
-	close(ccp->run_params_struct->out_pipe[0]);
-	close(ccp->run_params_struct->out_pipe[1]);
-	close(ccp->run_params_struct->in_pipe[0]);
-	close(ccp->run_params_struct->in_pipe[1]);
+	
+	//close(ccp->run_params_struct->in_pipe[1]); //already closed in the Template process.
+
+		//check fds
+	flags=fcntl(binary_input_pipe[PIPE_WRITETO],F_GETFD);
+	if(flags<0){
+		debugt("watch", "binary_input_pipe[PIPE_WRITETO] is invalid");
+		exit(-30);
+	}
 
 	//Fork to the submission binary
 	//set up an alarm of maximum execution (wall clock) time.
 	signal(SIGALRM,watcher_sig_handler);
+
+	
 	alarm(ccp->sandbox_struct->walltime_limit_ms_default/1000);
 
 	////forking to the process that will execute the binary.
 	debugt("watcher","forking to the binary...");
 	//WATCHER FORKs TO THE SUBMISSION
+		//check fds
+	flags=fcntl(binary_input_pipe[PIPE_WRITETO],F_GETFD);
+	if(flags<0){
+		debugt("watch", "binary_input_pipe[PIPE_WRITETO] is invalid");
+		exit(-40);
+	}
 	binary_pid=fork();
 	if(binary_pid<0){
 		debugt("watcher","cannot fork the grandchild, exiting...");
@@ -566,7 +616,7 @@ int jug_sandbox_child(void* arg){
 	if(binary_pid>0){
 		//I'm the direct parent of the submission
 		binary_state=JS_BIN_RUNNING;
-		unsigned long mem_used=0;
+		 long mem_used=0;
 		int estatus,stop_sig;
 		int sigxcpu_received=0,sigsegv_received=0,mem_limit_exceeded=0,bin_killed=0;
 		int d_=0;
@@ -587,8 +637,46 @@ int jug_sandbox_child(void* arg){
 
 
 		//watcher main loop
+		int _datasource_transfer_size=40000;
+		ssize_t splice_size=0;
+		ssize_t splice_size_acc=0;
+		char splice_buffer[100000];
+
+		debugt("watcher", "datasource size : %d", ccp->run_params_struct->datasource_size);
 		while(1){
-			waitpid(binary_pid,&estatus,0);
+			//write data
+			if(splice_size_acc < ccp->run_params_struct->datasource_size){
+				splice_size=splice(	ccp->run_params_struct->in_pipe[PIPE_READFROM], NULL ,
+									binary_input_pipe[PIPE_WRITETO], NULL,
+									_datasource_transfer_size,
+									SPLICE_F_NONBLOCK);
+
+				if(splice_size<0 && errno!=EAGAIN){
+					//error transferring data to Binary
+					debugt("watcher", "error transferring feed to Binary : %s", strerror(errno));
+					close(binary_input_pipe[PIPE_WRITETO]);
+					exit(-22);
+				}else if(splice_size>0) {
+					debugt("watcher", "transferred to Binary : %d", (int)splice_size);
+				}
+				if(splice_size>=0){
+						splice_size_acc += splice_size;
+					}
+				if(  splice_size_acc>= ccp->run_params_struct->datasource_size){
+					debugt("watcher", "closing the binary_input_pipe[write to]");
+					close( binary_input_pipe[PIPE_WRITETO]);
+				}
+			}
+
+			//check execution status
+			fail=waitpid(binary_pid,&estatus,WNOHANG);
+			if(fail==0){
+				//WNOHANG specified, so 0 means no change occurred , continue
+				continue;
+			}else if(fail==-1){
+				debugt("watcher", "error in waitpid on Binary : %s", strerror(errno));
+				exit(-60);
+			}
 
 			if(WIFSTOPPED(estatus)){
 				stop_sig=WSTOPSIG(estatus);
@@ -597,7 +685,7 @@ int jug_sandbox_child(void* arg){
 				if( (stop_sig==SIGTRAP) && (estatus & (PTRACE_EVENT_EXIT<<8))){
 					mem_used=jug_sandbox_memory_usage(binary_pid);
 					int cputime_used=jug_sandbox_cputime_usage(binary_pid);
-					debugt("watcher","before exit check : mem:%ldMB\tcputime:%ldms",mem_used/1000000,cputime_used);
+					if(mem_used>0 && cputime_used>0) debugt("watcher","before exit check : mem:%ldMB\tcputime:%ldms",mem_used/1000000,cputime_used);
 					if(mem_used>0 && (mem_used/1000000) > ccp->run_params_struct->mem_limit_mb){
 						debugt("watcher","out of allowed memory");
 						mem_limit_exceeded=1;
@@ -685,6 +773,7 @@ int jug_sandbox_child(void* arg){
 	}
 
 	//GrandChild code (binary)
+
 	//ptraceed ...
 
 	if(ptrace(PTRACE_TRACEME, 0, (char *)1, 0) < 0){
@@ -692,8 +781,12 @@ int jug_sandbox_child(void* arg){
 		char* p;char c;c=*p;
 		exit(99);
 	}
-	//printf("Hacked By Ouadev01\n");
-	//fflush(stdout);
+
+		//close unused fds
+	fail=close(ccp->run_params_struct->in_pipe[0]);
+	if(fail==-1) debugt("YYYYYYYYYY", "close failed 1: %s", strerror(errno));
+	fail=close(binary_input_pipe[1]);
+	if(fail==-1) debugt("YYYYYYYYY", "close failed 2 : %s", strerror(errno));
 	//set rlimits
 
 	//limit cpu usage
@@ -756,6 +849,8 @@ int jug_sandbox_child(void* arg){
 	char* sandbox_envs[2]={
 			"MESSAGE=Nice, you got here? send me ENV to ouadimjamal@gmail.com",
 			NULL};
+
+
 
 
 	ccp->argv[0]="/KudosBinary";
@@ -971,6 +1066,7 @@ int jug_sandbox_template(void*arg){
 	//EOF is only transmitted after all the writing fds are closed.
 	for (int i=0; i<THREADS_MAX; i++){
 		close(io_pipes_in[i][PIPE_WRITETO]);
+		close(io_pipes_out[i][PIPE_READFROM]); //Template doesn't need to read from those
 	}
 	//shared mem
 	key_t key=2210;
@@ -1299,7 +1395,7 @@ const char* jug_sandbox_result_str(jug_sandbox_result result){
  * + we will take VmSize as the calculated memory_usage
  */
 //CHECK: check also the program text size, it seems like a bug to fill the memory with unused text code.
-unsigned long jug_sandbox_memory_usage(pid_t pid){
+ long jug_sandbox_memory_usage(pid_t pid){
 	int procfd,r;
 
 	unsigned long vmsize,resident,share,text,lib,data,dt;
@@ -1339,7 +1435,7 @@ unsigned long jug_sandbox_memory_usage(pid_t pid){
 /*
  * void jug_sandbox_print_stats()
  */
-unsigned long jug_sandbox_cputime_usage(pid_t pid){
+ long jug_sandbox_cputime_usage(pid_t pid){
 	int procfd,r,i;
 	int utime,stime;
 	long cputime;
@@ -1389,7 +1485,7 @@ void watcher_sig_handler(int sig){
 	}
 
 	//SIGUSR1: sent from the parent, wrong output detectedn or pipe error
-	if(sig==SIGUSR1){
+	else if(sig==SIGUSR1){
 		debugt("watcher_sig_handler","SIGUSR1 received, wrong output detected");
 		error=kill(binary_pid,SIGKILL);
 		if(error){
@@ -1397,6 +1493,9 @@ void watcher_sig_handler(int sig){
 			return;
 		}
 		binary_state=JS_BIN_COMPOUT;
+	}
+	else{
+		debugt("watcher_sig_handler", "received SIGNAL %d", sig);
 	}
 }
 

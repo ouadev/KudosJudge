@@ -178,6 +178,7 @@ int io_pipes_in [THREADS_MAX][2]; //feed the submission
 char* template_shm;
 
 
+
 /**
  * jug_sandbox_start
  * @desc called by the daemon to start the sandbox( template process, init , ...)
@@ -244,7 +245,7 @@ const char* jug_sandbox_result_str(jug_sandbox_result result);
  * @note this call is done inside the sandbox.
  */
 
-unsigned long jug_sandbox_memory_usage(pid_t pid);
+ long jug_sandbox_memory_usage(pid_t pid);
 
 
 
@@ -254,7 +255,7 @@ unsigned long jug_sandbox_memory_usage(pid_t pid);
  * @note for debug purposes. must be called from the watcher process.
  */
 
-unsigned long jug_sandbox_cputime_usage(pid_t pid);
+ long jug_sandbox_cputime_usage(pid_t pid);
 
 /**
  * jug_sandbox_init_template
