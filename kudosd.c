@@ -193,9 +193,6 @@ int main(int argc, char* argv[]){
 	}
 
 
-	printf("starting ...\n");
-	printf("\033[0;32mstarted\033[0m\n");
-	printf("use\033[1;30m $./kudosd state\033[0m to check if the daemon is running \n");
 	/**
 	 *
 	 * start the daemon
@@ -204,6 +201,48 @@ int main(int argc, char* argv[]){
 	openlog("kudosd", LOG_PID|LOG_CONS, LOG_USER);
 	//daemonize
 	error=kjd_daemonize();
+	if(error==100){
+		printf("starting ...\n");
+		//still in the parent
+		time_t stime = time(NULL);
+		while((time(NULL) - stime) < 10 && access(tmp_path, F_OK)==-1) {};
+		if( (time(NULL) - stime)>=10){
+			printf("Failed to start the daemon, Timout");
+			exit(12);
+		}
+		//file exists get the final daemon pid
+		tmpfile_pid=fopen(tmp_path,"r");
+		if(tmpfile_pid==NULL){
+			printf("Internal Error : 2\n");
+			exit(10);
+		}
+		if( (tmp_read=fread(tmppid_str,1,50,tmpfile_pid) )==-1){
+			printf("Internal Error : 3\n");
+			exit(11);
+		}
+		tmppid_str[10]='\0';
+		daemon_pid=(pid_t)atoi(tmppid_str);
+		//check this pid
+		sprintf(proc_daemon,"/proc/%d",daemon_pid);
+		error=stat(proc_daemon,&daemon_proc_stat);
+		if(error==-1){
+			if (errno!=ENOENT){
+				printf("Internal Error : 5\n");
+				exit(5);
+			}
+			daemon_running=0;
+		}else{
+			//daemon is running.
+			daemon_running=1;
+		}
+		fclose(tmpfile_pid);
+
+		if(daemon_running) printf("\033[0;32mstarted\033[0m  (pid = %d) \n", daemon_pid);
+		else printf("\033[0;31m Failed to start the daemon\033[0m \n");
+		
+		exit(0);
+
+	}
 	//redirect stderr debug to
 	char stderr_tmpfile[40];
 	char stdout_tmpfile[40];
@@ -383,7 +422,9 @@ int kjd_daemonize(){
 		return -1;
 	}
 	if(pid>0){
-		exit(0);
+		return 100;
+
+		//exit(0);
 	}
 	//the child
 	if(setsid()<0){
@@ -393,6 +434,8 @@ int kjd_daemonize(){
 	//signal stuff
 	signal(SIGHUP, SIG_IGN);
 	signal(SIGINT, kjd_sighandler); //used to shutdown the daemon
+	signal(SIGTERM, kjd_sighandler);
+	signal(SIGSEGV, kjd_sighandler);
 
 	//for second time to prevent from getting a controlling terminal
 	pid=fork();
@@ -421,7 +464,7 @@ int kjd_daemonize(){
  */
 
 void kjd_sighandler(int sig){
-	if(sig==SIGINT){
+	if(sig==SIGINT || sig==SIGTERM || sig==SIGSEGV){
 		kjd_log("SIGINT received, exiting ... ");
 		//clean the ramfs, kill the template process, remove all tmp files, and exit
 		//kill threads.
