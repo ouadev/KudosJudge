@@ -9,7 +9,7 @@
 #include "buffer/buffer.h"
 #include "log.h"
 
-#define RECEIVE_SIZE_MAX 500
+#define RECEIVE_SIZE_MAX 5000
 /**
  * interface.h
  * the communicatio primitives that the daemon (and eventually a client) uses to communicate.
@@ -73,6 +73,11 @@ typedef struct int_request{
 	int out_reference;
 	char* output;
 } int_request;
+
+int jug_int_init();
+
+unsigned int  g_socketbuffer_max_size;
+int g_socketbuffer_max_size_calculated;
 
 /**
  * struct int_response

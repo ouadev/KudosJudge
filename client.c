@@ -67,11 +67,17 @@ int main(int argc , char *argv[])
 	}
 
 	puts("KudosClient: Connected");
-	
+
 
 	//request
-	char* request=kudosdjudge_forge_dd(source_filename, input_filename,output_filename);
+	char* request=NULL;
 
+	request=kudosdjudge_forge_dd(source_filename, input_filename,output_filename);
+
+	if(request==NULL){
+		printf("Client : forging the request failed\n");
+		return 1;
+	}
 	//record start time
 	gettimeofday(&tv_start,NULL);
 	//send data
@@ -159,25 +165,37 @@ char* kudosjudge_receive(int client_sock){
 
 
 void print_hr_duration(unsigned long useconds){
-
-		printf("%ld ms %ld us\n", useconds/1000, useconds%1000);
 	
+		printf("%lds ", useconds/1000000);
+		useconds=useconds%1000000;
+
+		printf("%ldms ", useconds/1000);
+		useconds=useconds%1000;
+		
+		printf("%ldus\n", useconds);
+			
 }
 
 
 char* kudosdjudge_forge_dd(char* source_filename, char* input_filename, char* output_filename){
+	
+
 	FILE* source_file=fopen(source_filename,"r");
 	FILE* input_file=fopen(input_filename, "r");
 	FILE* output_file=fopen(output_filename, "r");
 
 	char source[1000];source[0]='\0';
-	char input[1000001];input[0]='\0';
+
+	
+	char* input =(char*)malloc(sizeof(char)* 10000001);
+	input[0]='\0';
+	
 	char output[4000];output[0]='\0';
 
-	char block_buffer[1000];
+	char block_buffer[10000];
+
 
 	 int read=0;
-
 	while(!feof(source_file)){
 		read=fread(block_buffer,sizeof(char), sizeof(block_buffer), source_file);
 		block_buffer[read]='\0';
@@ -190,13 +208,11 @@ char* kudosdjudge_forge_dd(char* source_filename, char* input_filename, char* ou
 		strcat(input, block_buffer);	
 	}
 
-
 	while(!feof(output_file)){
 		read=fread(block_buffer,sizeof(char), sizeof(block_buffer), output_file);
 		block_buffer[read]='\0';
 		strcat(output, block_buffer);
 	}
-
 
 	//printf("source:\n%s\n", source);
 	//printf("input:\n%s\n", input );
@@ -208,7 +224,9 @@ char* kudosdjudge_forge_dd(char* source_filename, char* input_filename, char* ou
 	int out_type=0;//data
 
 	char* body=(char*)malloc(sizeof(char)*(strlen(source)+strlen(input)+strlen(output)+400));
+	if(body==NULL) {printf("cannot allocate space for body\n"); return NULL;}
 	char* request=(char*)malloc(sizeof(char)*(strlen(source)+strlen(input)+strlen(output)+400));
+	if(request==NULL) {printf("cannot allocate space for request\n"); return NULL;}
 	sprintf(body,"%d\n%d\n%ld\n%s\n%d\n%ld\n%s\n%ld\n%s", 
 		type, in_type,strlen(input), input,out_type, strlen(output), output, strlen(source), source );
 	int bodylen=strlen(body);
@@ -220,7 +238,7 @@ char* kudosdjudge_forge_dd(char* source_filename, char* input_filename, char* ou
 
 
 	
-
+	
 	
 
 }

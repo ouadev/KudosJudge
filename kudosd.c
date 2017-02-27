@@ -283,6 +283,15 @@ int main(int argc, char* argv[]){
 		kjd_log("Problem initializing feed store");
 		return -558;
 	}
+
+	///////////////////////////////////////////////////
+	/////// init Interface component (networking) /////
+	////////////////////////////////////////////////////
+	error= jug_int_init();
+	if(error!=0){
+		kjd_log("Problem initializing Interface");
+		return -559;
+	}
 	/////////////////////
 	//setup tcp server//
 	//////////////////

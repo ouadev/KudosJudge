@@ -3,6 +3,14 @@
 
 
 
+int jug_int_init(){
+	g_socketbuffer_max_size_calculated=0;
+	
+
+
+	return 0;
+		
+}
 
 
 
@@ -134,13 +142,34 @@ void jug_int_free_connection(jug_connection* connection){
 //receive athe message from the client
 buffer_t* jug_int_receive(int client_sock){
 	buffer_t* request_buffer=buffer_new();
-	char tmp_buffer[RECEIVE_SIZE_MAX];
+	//char tmp_buffer[RECEIVE_SIZE_MAX];
 	int read_size, read_size_acc=0;
 	int metadata_read=0;
 	int request_size=0;
 	int body_start_index=0;
-	while(1){
-		read_size = recv(client_sock , tmp_buffer , sizeof(tmp_buffer) , 0) ;
+	int error;
+	unsigned int receive_size_max;
+	//get socket maximum allowed size in this system
+	if(g_socketbuffer_max_size_calculated == 0){
+		unsigned int m = sizeof(g_socketbuffer_max_size);
+		error=getsockopt(client_sock ,SOL_SOCKET,SO_RCVBUF,(void *)&g_socketbuffer_max_size, &m);
+		if(error>=0){
+			g_socketbuffer_max_size_calculated=1;
+		}
+	}
+	
+	if(g_socketbuffer_max_size_calculated) receive_size_max=g_socketbuffer_max_size;
+	else receive_size_max=RECEIVE_SIZE_MAX;
+	//debugt("interface", "Receive maximum size : %d", receive_size_max);
+	//prepare buffer
+	char* tmp_buffer=(char*)malloc(sizeof(char)* receive_size_max);
+	if(tmp_buffer==NULL){
+		debugt("interface", "cannot allocate memory for receive buffer");
+		return NULL;
+	}
+	//receive loop
+	while(1){ 
+		read_size = recv(client_sock , tmp_buffer , receive_size_max , 0) ;
 		if(read_size<0){
 			//error
 			buffer_free(request_buffer);
@@ -155,8 +184,10 @@ buffer_t* jug_int_receive(int client_sock){
 		}
 		if(read_size==0 || (metadata_read && read_size_acc>=request_size)) break;
 	}
+	free(tmp_buffer);
 	buffer_t* pure_request_buffer=buffer_slice(request_buffer, body_start_index+1, buffer_size(request_buffer)-1);
 	buffer_free(request_buffer);
+
 	return pure_request_buffer;
 }
 //send verdict

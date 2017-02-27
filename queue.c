@@ -163,9 +163,13 @@ void queue_worker_serv(jug_connection* connection){
 		debugt("queue","error while receiving, worker %d",queue_worker_id());
 		return;
 	}
-	//debugt("queue", "received : \n:%s", buffer_get_string(req_buffer));
-	//TEST:
 	
+	// debugt("queue", "Experiment. size of input : %d", buffer_size(req_buffer));
+	// jug_int_send_verdict(client_sock, VERDICT_ACCEPTED);
+	// close(client_sock);
+	// buffer_free(req_buffer);
+	// debugt("queue", "verdict sent");
+	// return ;
 
 
 
