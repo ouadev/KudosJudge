@@ -217,12 +217,6 @@ int jug_sandbox_run_tpl(
 		return -2;
 	}
 
-//	//FIXME:TEST-UNIT (get out without waiting for output from cloned watcher)
-//	debugt("testunit","watcher_id: %d",watcher_pid);
-//	run_params_struct->result=JS_CORRECT;
-//	return 0;
-//	//TEST-UNIT
-
 
 	/*
 	 *
@@ -249,6 +243,7 @@ int jug_sandbox_run_tpl(
 	//ublock write
 	flags=fcntl(run_params_struct->in_pipe[PIPE_WRITETO],F_GETFL,0);
 	fcntl(run_params_struct->in_pipe[PIPE_WRITETO],F_SETFL,flags|O_NONBLOCK);
+
 	//check fds
 	flags=fcntl(run_params_struct->in_pipe[PIPE_WRITETO],F_GETFD);
 	if(flags<0){
@@ -440,7 +435,9 @@ int jug_sandbox_run_tpl(
 	 * Close all opened file descriptors
 	 * Free All Malloced memory areas
 	 */
-
+	//flush out pipe
+	while ( (count=read(run_params_struct->out_pipe[PIPE_READFROM],buffer,255)) >0 ){};
+	debugt("runner", "out_pipe flushed ");
 	free(ccp);
 
 	return 0;
@@ -458,6 +455,7 @@ int jug_sandbox_run_tpl(
 //reside@[main_process], run@[template_forked_process|watcher_process]
 int jug_sandbox_child(void* arg){
 	int fail=0;
+	char buffer[500];
 	
 
 	debugt("watcher","Starting...");
@@ -581,6 +579,9 @@ int jug_sandbox_child(void* arg){
 		dup2(ccp->run_params_struct->in_pipe[0],STDIN_FILENO);
 	}
 	*/
+		//ublock read from in_pipe
+	flags=fcntl(ccp->run_params_struct->in_pipe[PIPE_READFROM],F_GETFL,0);
+	fcntl(ccp->run_params_struct->in_pipe[PIPE_READFROM],F_SETFL,flags|O_NONBLOCK);
 
 	
 	//close(ccp->run_params_struct->in_pipe[1]); //already closed in the Template process.
@@ -751,6 +752,8 @@ int jug_sandbox_child(void* arg){
 		//analyzing the situation & return a convenient execution verdict.
 		//fflush(stdout);
 		//fflush(stderr);
+		while (  (fail=read(ccp->run_params_struct->in_pipe[PIPE_READFROM], buffer, sizeof(buffer) ) )>0 ){} ;
+		debugt("watcher", "in_pipe flushed");
 		if(sigxcpu_received)
 			exit(JS_TIMELIMIT);
 		else if(mem_limit_exceeded)
@@ -1481,10 +1484,10 @@ void watcher_sig_handler(int sig){
 		alarm(0);
 		//execution succesfully killed
 		binary_state=JS_BIN_WALLTIMEOUT;
-		debugt("watcher_sig_handler","binary process %d (inside pid_ns) has been succesfully killed",binary_pid);
+		debugt("watcher_sig_handler","binary process %d (inside pid_ns) has been successfully killed",binary_pid);
 	}
 
-	//SIGUSR1: sent from the parent, wrong output detectedn or pipe error
+	//SIGUSR1: sent from the parent, wrong output detected or pipe error
 	else if(sig==SIGUSR1){
 		debugt("watcher_sig_handler","SIGUSR1 received, wrong output detected");
 		error=kill(binary_pid,SIGKILL);
