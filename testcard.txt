@@ -1,10 +1,5 @@
-+ threding isolated (tested till 10 workers)							OK
-+ template communication, signal sending data exchange					OK
-		+ send signal and quit (agressive)								OK
-		+ data exchange (without cloning), serialization				OK
-			+ full exchange (shared memory, except some hanging)   		OK (hangs, may be because signal handling, should mask)
-+ template launching the Watcher										IN PROGRESS
-		+ watcher exits after launch 									OK (fix THRADS_MAX bug)
-		+ ERFS-mode enable/disable										OK
-+
-+ sandbox executing programs in threaded-mode							OK
+.Notes
+
++ fix the verdicts, so if any error occured in the SERVER, the client should always INTERNAL_ERROR, anf RUNTIME_ERROR if the problem is in their code.
++ even if the Judge works well, add some time limits to pipes and reading to gain more stability. 
++ deactivate a worker if something went wrong, so it doesn't take work next time

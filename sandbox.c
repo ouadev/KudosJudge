@@ -436,8 +436,49 @@ int jug_sandbox_run_tpl(
 	 * Free All Malloced memory areas
 	 */
 	//flush out pipe
-	while ( (count=read(run_params_struct->out_pipe[PIPE_READFROM],buffer,255)) >0 ){};
-	debugt("runner", "out_pipe flushed ");
+	debugt("Runner", "(%d) Total transferred to Watcher : %d", run_params_struct->thread_order, ds_sent_acc);
+	
+	//there are more than one writer, and we cannot close them all (the template one). and so the read will 
+	// block forever. what we will do, since the binary is closed, is to just read for a while
+	int blocking_count=0;
+	int flush_out_acc=;
+	while ( (count=read(run_params_struct->out_pipe[PIPE_READFROM],buffer,255)) != 0   ){
+		if(count==-1 && errno!=EAGAIN){
+			debugt("Runner", "error emptying pipe_out %s", strerror(errno));
+			run_params_struct->result=JS_UNKNOWN;
+			return 0;
+		}
+
+		if(count<0 && errno==EAGAIN ) blocking_count++;
+		if(count >=0){blocking_count=0; flush_out_acc+=count;}
+		if(blocking_count>10000) break;
+	};
+	debugt("Runner", "(%d) out_pipe is supposed flushed : %d", run_params_struct->thread_order, flush_out_acc);
+	
+	// debugt("runner", "out_pipe flushed ");
+	//write the rest of data to in_pipe
+	int flush_acc=0;
+	int flush_written=0;
+	while(1){
+		flush_written=sendfile(
+					run_params_struct->in_pipe[PIPE_WRITETO],
+					run_params_struct->fd_datasource,
+					NULL,_datasource_transfer_size
+			);
+		if(flush_written>=0){
+			flush_acc += flush_written;
+		}
+		if(flush_written<0 && errno != EAGAIN){
+			debugt("Runner", "error writing the rest of data to Watcher, %s", strerror(errno));
+			run_params_struct->result= JS_UNKNOWN;
+			return 0;
+		}
+		if( flush_acc + ds_sent_acc >= run_params_struct->datasource_size ){
+			break;
+		}
+	}
+	debugt("Runner", "(%d) Total thrown to Watcher %d", run_params_struct->thread_order, flush_acc);
+	
 	free(ccp);
 
 	return 0;
@@ -544,10 +585,10 @@ int jug_sandbox_child(void* arg){
 		debugt("watcher", "cannot create the input pipe to Binary : %s", strerror(errno));
 		exit(-9);
 	}
-	debugt("watcher", "binary_input_pipe (%d, %d)", binary_input_pipe[0], binary_input_pipe[1]);
+	//debugt("watcher", "binary_input_pipe (%d, %d)", binary_input_pipe[0], binary_input_pipe[1]);
 	//link Binary input to the reading end of the pipe.
 	fail=dup2(binary_input_pipe[PIPE_READFROM], STDIN_FILENO);
-	debugt("watcher", "binary_input_pipe[0] is dup2 to %d", fail);
+	//debugt("watcher", "binary_input_pipe[0] is dup2 to %d", fail);
 
 
 	//close(binary_input_pipe[PIPE_READFROM]);
@@ -657,7 +698,7 @@ int jug_sandbox_child(void* arg){
 					debugt("watcher", "error transferring feed to Binary : %s", strerror(errno));
 					close(binary_input_pipe[PIPE_WRITETO]);
 					exit(-22);
-				}else if(splice_size>0) {
+				}else if(splice_size>=0) {
 					//debugt("watcher", "transferred to Binary : %d", (int)splice_size);
 				}
 				if(splice_size>=0){
@@ -752,8 +793,26 @@ int jug_sandbox_child(void* arg){
 		//analyzing the situation & return a convenient execution verdict.
 		//fflush(stdout);
 		//fflush(stderr);
-		while (  (fail=read(ccp->run_params_struct->in_pipe[PIPE_READFROM], buffer, sizeof(buffer) ) )>0 ){} ;
-		debugt("watcher", "in_pipe flushed");
+		debugt("watcher", "(%d) Total transferred to Binary : %d",ccp->run_params_struct->thread_order, splice_size_acc);
+		unsigned int tl=4000000000;
+		int flush_acc=0;
+		while(1){
+			fail=read(ccp->run_params_struct->in_pipe[PIPE_READFROM], buffer, sizeof(buffer) );
+			if(fail<0 && errno!=EAGAIN){
+				debugt("watcher", "error flushing in pipe : %s", strerror(errno));
+				exit(JS_RUNTIME);
+			}
+			if(fail>=0){
+				flush_acc += fail;
+			}
+			if( (splice_size_acc+flush_acc) >= ccp->run_params_struct->datasource_size ){
+				break;
+			}
+		}
+	
+		
+		debugt("watcher", "(%d) in_pipe flushed : %d",ccp->run_params_struct->thread_order, flush_acc);
+
 		if(sigxcpu_received)
 			exit(JS_TIMELIMIT);
 		else if(mem_limit_exceeded)
@@ -857,7 +916,7 @@ int jug_sandbox_child(void* arg){
 
 
 	ccp->argv[0]="/KudosBinary";
-	debugt("binary","trying to execute : %s", ccp->binary_path);
+	//debugt("binary","%s", ccp->binary_path);
 	execvpe(ccp->binary_path,ccp->argv,sandbox_envs);
 	debugt("binary","error execvp, %d, %s",errno==EFAULT,strerror(errno));
 	return -999;
