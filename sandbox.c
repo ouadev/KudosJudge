@@ -299,13 +299,7 @@ int jug_sandbox_run_tpl(
 		}
 
 
-		//process's available output from the watcher.
-		if(endoffile || compout_detected){
-			if(!watcher_alive)
-				break;
-			else
-				continue;
-		}
+		
 		//write to the watcher (template clone)
 		//NOTE:think about jumping over this call if we eat up all the fd_datasource.
 		if(ds_sent_acc < run_params_struct->datasource_size){
@@ -328,31 +322,30 @@ int jug_sandbox_run_tpl(
 				compout_detected=1;
 				//send SIGUSR1
 				if(cnfg_kill_on_compout)
-					kill(watcher_pid,SIGUSR1);
+					kill(watcher_pid,SIGUSR2);
 			}
-			//close the stdin pipe after sending all the data.
-			if(ds_sent_acc >= run_params_struct->datasource_size){
-				//do nothing, everything is taken care of in the Watcher
-				// if( close(run_params_struct->in_pipe[PIPE_WRITETO])== -1 ){
-				// 	debugt("run_tpl", "cannot close writing end of stdin pipe");
-				// }
-				// debugt("run_tpl", "closing the pipe of stdin");
-			}
+		
 		}
 
-
+		//process's available output from the watcher.
+		if(endoffile || compout_detected){
+			if(!watcher_alive)
+				break;
+			else
+				continue;
+		}
 		//use simultaneous read
 		//ps:ublocking read
+		
 		count=read(run_params_struct->out_pipe[PIPE_READFROM],buffer,255);
 
-				if( count>=0)
-					debugt("run_tpl","order=%d, read count=%d",run_params_struct->thread_order,count);
+		if( count>=0)
+			debugt("run_tpl","order=%d, read count=%d",run_params_struct->thread_order,count);
 
 		if(ccp->sandbox_struct->show_submission_output && count!=-1 ){
 			//write(STDOUT_FILENO,"~~~~~~~~~\n",10);
 			//write(STDOUT_FILENO,buffer,count);
 			buffer[count]='\0';
-
 			debugt("stdout", "%s", buffer);
 			//write(STDOUT_FILENO,"~~~~~~~~~\n",10);
 		}
@@ -362,14 +355,19 @@ int jug_sandbox_run_tpl(
 			else if(nequal>0)	comp_result=JS_WRONG;
 			else				comp_result=JS_COMP_ERROR;
 			compare_stage++;
+
+			
 			//
 			//debugt("compare","stage=%d,nequal:%d",compare_stage,nequal);
 			//if an inequality is reported by the comparing function, and simultaneous mode is on, kill.
 			if(nequal != 0){
 				compout_detected=1;
 				//communicate with the child via SIGUSR1 signal to inform them we detected false output
-				if(cnfg_kill_on_compout)
-					kill(watcher_pid,SIGUSR1);
+				if(cnfg_kill_on_compout){
+					kill(watcher_pid,SIGUSR2);
+					
+				}
+				
 			}
 			//detect too much of output (not test feature)
 			//SIGUSR1 handler will kill the binary and make sure the watcher reports a good execution
@@ -378,7 +376,7 @@ int jug_sandbox_run_tpl(
 			received_bytes+=count;
 			if( (received_bytes/1000000)> ccp->sandbox_struct->output_size_limit_mb_default){
 				debugt("rn_tpl","too much generated output");
-				kill(watcher_pid,SIGUSR1);
+				kill(watcher_pid,SIGUSR2);
 				comp_result=JS_OUTPUTLIMIT;
 			}
 		}
@@ -389,6 +387,7 @@ int jug_sandbox_run_tpl(
 			else if(nequal>0)		comp_result=JS_WRONG;
 			else					comp_result=JS_COMP_ERROR;
 			//debugt("compare","stage=%d,nequal:%d",compare_stage,nequal);
+
 		}else if(count<0){
 			if(errno==EAGAIN){
 				if(	!watcher_alive ){
@@ -401,6 +400,7 @@ int jug_sandbox_run_tpl(
 					//we're done then
 					were_done=1;
 					//debugt("compare","stage=%d,nequal:%d",compare_stage,nequal);
+					
 				}
 				continue;
 			}else{
@@ -408,7 +408,7 @@ int jug_sandbox_run_tpl(
 				compout_detected=1;
 				//send SIGUSR1
 				if(cnfg_kill_on_compout)
-					kill(watcher_pid,SIGUSR1);
+					kill(watcher_pid,SIGUSR2);
 			}
 		}
 	}
@@ -441,7 +441,7 @@ int jug_sandbox_run_tpl(
 	//there are more than one writer, and we cannot close them all (the template one). and so the read will 
 	// block forever. what we will do, since the binary is closed, is to just read for a while
 	int blocking_count=0;
-	int flush_out_acc=;
+	int flush_out_acc=0;
 	while ( (count=read(run_params_struct->out_pipe[PIPE_READFROM],buffer,255)) != 0   ){
 		if(count==-1 && errno!=EAGAIN){
 			debugt("Runner", "error emptying pipe_out %s", strerror(errno));
@@ -498,7 +498,7 @@ int jug_sandbox_child(void* arg){
 	int fail=0;
 	char buffer[500];
 	
-
+	
 	debugt("watcher","Starting...");
 
 	//
@@ -637,7 +637,10 @@ int jug_sandbox_child(void* arg){
 	//Fork to the submission binary
 	//set up an alarm of maximum execution (wall clock) time.
 	signal(SIGALRM,watcher_sig_handler);
-
+	if(signal(SIGUSR2,watcher_sig_handler)==SIG_ERR){
+		debugt("watcher", "error subscribing to SIGUSR1, %s", strerror(errno));
+		exit(-3);
+	}
 	
 	alarm(ccp->sandbox_struct->walltime_limit_ms_default/1000);
 
@@ -685,9 +688,12 @@ int jug_sandbox_child(void* arg){
 		char splice_buffer[100000];
 
 		debugt("watcher", "datasource size : %d", ccp->run_params_struct->datasource_size);
+		int dcount=0;
 		while(1){
 			//write data
 			if(splice_size_acc < ccp->run_params_struct->datasource_size){
+				if(dcount++%1000000==0) debugt("watcher"," SPLICE LOOP");
+				sleep(0.1);
 				splice_size=splice(	ccp->run_params_struct->in_pipe[PIPE_READFROM], NULL ,
 									binary_input_pipe[PIPE_WRITETO], NULL,
 									_datasource_transfer_size,
@@ -1546,8 +1552,8 @@ void watcher_sig_handler(int sig){
 		debugt("watcher_sig_handler","binary process %d (inside pid_ns) has been successfully killed",binary_pid);
 	}
 
-	//SIGUSR1: sent from the parent, wrong output detected or pipe error
-	else if(sig==SIGUSR1){
+	//SIGUSR2: sent from the parent, wrong output detected or pipe error
+	else if(sig==SIGUSR2){
 		debugt("watcher_sig_handler","SIGUSR1 received, wrong output detected");
 		error=kill(binary_pid,SIGKILL);
 		if(error){
