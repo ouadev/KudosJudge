@@ -5,11 +5,13 @@
 #include <string.h>
 #include <sys/types.h>
  #include <sys/socket.h>
+#include <arpa/inet.h>
 #include <unistd.h>
 #include "buffer/buffer.h"
 #include "log.h"
 
 #define RECEIVE_SIZE_MAX 5000
+#define REQUEST_SIZE_MAX 30000000 //30MB
 /**
  * interface.h
  * the communicatio primitives that the daemon (and eventually a client) uses to communicate.
@@ -28,6 +30,7 @@
 
 typedef struct jug_connection{
 	int client_socket; //client socket
+	struct sockaddr_in* client_sockaddr_in;
 }jug_connection;
 
 void jug_int_free_connection(jug_connection* connection);

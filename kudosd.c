@@ -417,6 +417,7 @@ int main(int argc, char* argv[]){
 		//push the handle in the queue
 		jug_connection* new_connection=(jug_connection*)malloc(sizeof(jug_connection));
 		new_connection->client_socket=client_sock;
+		new_connection->client_sockaddr_in=&client;
 
 		queue_push_connection(new_connection);
 		kjd_log("Client_sock inserted in Queue");

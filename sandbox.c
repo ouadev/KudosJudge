@@ -204,8 +204,6 @@ int jug_sandbox_run_tpl(
 	void* serial;
 	int serial_len=jug_sandbox_template_serialize(&serial,ccp);
 	//clone request
-	debugt("###","###################");
-	debugt("run","new submission");
 	//ASK TEMPLATE TO CLONE
 	watcher_pid=jug_sandbox_template_clone(serial,serial_len);
 	////////
@@ -523,7 +521,7 @@ int jug_sandbox_child(void* arg){
 			exit(-3);
 		}
 	}else{
-		debugt("sandbox_child","ERFS mode off");
+		debugt("watcher","ERFS mode off");
 		fail=chdir("/");
 		if(fail){
 			debugt("jug_sandbox_child","chdir() to '/' failed");
@@ -544,7 +542,7 @@ int jug_sandbox_child(void* arg){
 		debugt("jug_sandbox_child","error remounting sandbox /proc, linux error : %s\n",strerror(errno));
 		exit(-4);
 	}
-	debugt("watcher","/proc remounted succesfully");
+	
 	//remount the /tmp directory, each submission sees its own stuff
 	fail=umount("/tmp");
 	if(fail && errno!=EINVAL){
@@ -688,12 +686,12 @@ int jug_sandbox_child(void* arg){
 		char splice_buffer[100000];
 
 		debugt("watcher", "datasource size : %d", ccp->run_params_struct->datasource_size);
-		int dcount=0;
+	
 		while(1){
 			//write data
 			if(splice_size_acc < ccp->run_params_struct->datasource_size){
-				if(dcount++%1000000==0) debugt("watcher"," SPLICE LOOP");
-				sleep(0.1);
+				
+		
 				splice_size=splice(	ccp->run_params_struct->in_pipe[PIPE_READFROM], NULL ,
 									binary_input_pipe[PIPE_WRITETO], NULL,
 									_datasource_transfer_size,
@@ -1177,7 +1175,7 @@ int jug_sandbox_template(void*arg){
 // jug_sandbox_template_sighandler (\\[template_process:sighandler])
 void jug_sandbox_template_sighandler(int sig){
 
-	debugt("tpl_sighandler","sig received : %d",sig);
+	//debugt("tpl_sighandler","sig received : %d",sig);
 	if(sig!=SIGUSR1) return;
 	//
 	char pipe_buf[50];
@@ -1270,7 +1268,7 @@ void jug_sandbox_template_sighandler(int sig){
 
 // jug_sandbox_template_clone (\\[main_process/some_thread])
 pid_t jug_sandbox_template_clone(void*arg, int len){
-	debugt("testunit","template_clone");
+	
 	if(template_pid<0){
 		debugt("tpl_clone","template_pid<0");
 		return (pid_t)-1;

@@ -28,11 +28,22 @@ void print_hr_duration(unsigned long useconds);
 int main(int argc , char *argv[])
 {
 	//parse arguments
+	char host[100];
+	int files_index=1;
+	if(argc<4){
+		printf("Usage : client -h host source-file input-file correct-output-file\n");
+		return 0;
+	}
+	if(argc >4 && argv[1][0]=='-' && argv[1][1]=='h'){
+		strcpy(host, argv[2]);
+		files_index=3;
+	}else{
+		strcpy(host, "127.0.0.1");
+	}
 
-	if(argc<4){printf("need more args\n");return 0;}
-	char* source_filename=argv[1];
-	char* input_filename=argv[2];
-	char* output_filename=argv[3];
+	char* source_filename=argv[files_index];
+	char* input_filename=argv[files_index+1];
+	char* output_filename=argv[files_index+2];
 
 	//TEST
 	struct timeval tv_start, tv_end;
@@ -55,7 +66,7 @@ int main(int argc , char *argv[])
 	}
 	puts("KudosClient: Socket created");
 
-	server.sin_addr.s_addr = inet_addr("127.0.0.1");
+	server.sin_addr.s_addr = inet_addr(host);
 	server.sin_family = AF_INET;
 	server.sin_port = htons( 22101 );
 

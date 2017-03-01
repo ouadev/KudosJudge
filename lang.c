@@ -178,7 +178,6 @@ int lang_process(jug_submission* submission, char* langid, int worker_id){
 	if(lang->type==LANG_COMPILED  || lang->type==LANG_VM){
 		//in file
 		sprintf(text_filename,"%s/%d/Submission.%s", g_lang_workspace,worker_id,lang->ext_compile);
-		debugt("lang-process", "text_filename ; %s", text_filename);
 		umask(S_IWGRP|S_IRGRP|S_IWOTH|S_IROTH);
 		compile_file=fopen(text_filename,"w+");
 		if(compile_file==NULL){

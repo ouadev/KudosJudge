@@ -142,6 +142,8 @@ void queue_worker_serv(jug_connection* connection){
 	int worker_id;
 	int error=0;
 	int_request request;
+	char client_ip[20];
+	char* client_ip_p=client_ip;
 
 	jug_submission submission;
 	jug_verdict_enum verdict;
@@ -156,11 +158,18 @@ void queue_worker_serv(jug_connection* connection){
 	submission.thread_id=worker_id;
 	//Receive a message from client
 	int client_sock=connection->client_socket;
+	//reteive some basic information about the client.
+	inet_ntop(AF_INET, &connection->client_sockaddr_in->sin_addr, client_ip_p, INET_ADDRSTRLEN );
+
+	//
+	debugt("queue", "##########################");
+	debugt("queue"," (%d) New Submission From : %s ",worker_id,  client_ip);
 	//
 	buffer_t* req_buffer=jug_int_receive(client_sock);
 
 	if(req_buffer==NULL){
 		debugt("queue","error while receiving, worker %d",queue_worker_id());
+		jug_int_send_verdict(client_sock, VERDICT_INTERNAL);
 		return;
 	}
 	
@@ -189,7 +198,7 @@ void queue_worker_serv(jug_connection* connection){
 		}else if(request.in_type== INT_REQ_FEEDTYPE_DATA){
 			//
 			char* input_filename=jug_feed_new_file(request.input, worker_id, "input");
-			debugt("queue", "input_filename:%s", input_filename);
+			
 			submission.input_filename=input_filename;
 		}
 
@@ -197,7 +206,7 @@ void queue_worker_serv(jug_connection* connection){
 			//not implemented yet
 		}else if(request.out_type==INT_REQ_FEEDTYPE_DATA){
 			char* output_filename=jug_feed_new_file(request.output, worker_id, "output");
-			debugt("queue", "output_filename:%s", output_filename);
+			
 			submission.output_filename=output_filename;
 		}
 		//get source code
@@ -224,7 +233,7 @@ void queue_worker_serv(jug_connection* connection){
 
 		// SEND TO THE SANDBOX
 		verdict=jug_sandbox_judge(&submission);
-		debugt("queue", "verdict %d", verdict);
+
 		//	free resources
 		lang_remove_binary(submission);
 		//clear feed files ()

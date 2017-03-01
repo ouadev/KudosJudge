@@ -173,10 +173,17 @@ buffer_t* jug_int_receive(int client_sock){
 		if(read_size<0){
 			//error
 			buffer_free(request_buffer);
+			free(tmp_buffer);
 			return NULL;
 		}
-				//
+		//
 		read_size_acc+=read_size;
+		if(read_size_acc >= REQUEST_SIZE_MAX){
+			buffer_free(request_buffer);
+			free(tmp_buffer);
+			debugt("interface","the request data is too large : %d", read_size_acc);
+			return NULL;
+		}
 		buffer_append_n(request_buffer, tmp_buffer, read_size);
 		if( !metadata_read && (body_start_index=buffer_indexof(request_buffer, "\n"))>0){
 			metadata_read=1;
