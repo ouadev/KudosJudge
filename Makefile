@@ -6,8 +6,8 @@ everything: kudosd client
 
 #build the kudos deamon
 kudosd: all
-	gcc log.o kudosd.o iniparser/iniparser.o buffer/buffer.o config.o  sandbox.o \
-	compare.o queue.o interface.o lang.o feed.o ramfs.o \
+	gcc log.o kudosd.o iniparser/iniparser.o buffer/buffer.o config.o  sandbox.o runner.o \
+	 compare.o queue.o interface.o lang.o feed.o ramfs.o \
 	-o bin/kudosd  -lpthread
 
 #build the experimental client
@@ -17,7 +17,7 @@ client: client.o
 client.o: client.c
 	gcc -c client.c -o client.o
 #compile root directory
-all: subdirs log.o config.o ramfs.o sandbox.o compare.o queue.o interface.o  kudosd.o  lang.o  feed.o
+all: subdirs log.o config.o ramfs.o runner.o sandbox.o compare.o queue.o interface.o  kudosd.o  lang.o  feed.o
 	
 kudosd.o: kudosd.c
 	gcc -c kudosd.c -o kudosd.o
@@ -32,8 +32,11 @@ ramfs.o:ramfs.c
 	gcc -c ramfs.c -o ramfs.o
 
 sandbox.o:sandbox.c
-	gcc -c sandbox.c -o sandbox.o  -ggdb
-	
+	gcc -c sandbox.c -o sandbox.o 
+
+runner.o: runner.c
+	gcc -c runner.c -o runner.o 
+
 compare.o:compare.c
 	gcc -c compare.c -o compare.o
 	

@@ -137,6 +137,7 @@ int factor(int x){
 	return x*factor(x-1);
 }
 void queue_worker_serv(jug_connection* connection){
+
 	int read_size, read_size_acc=0;
 	int write_size=0;
 	int worker_id;
@@ -213,34 +214,39 @@ void queue_worker_serv(jug_connection* connection){
 		submission.source=(char*)malloc(sizeof(char)*strlen(request.sourcecode)+2);
 		strcpy(submission.source, request.sourcecode);
 		//process the sourcecode
-		
-		
-		error=lang_process(&submission, "c",worker_id);
-		
+		BinaryInformation binInfo;
+		error=lang_process("c", submission.source, worker_id, &binInfo );
+	
 		if(error){
 			debugt("queue"," error at lang_process() : %d",error);
 			jug_verdict_enum err_verdict=  error==-3? VERDICT_COMPILE_ERROR:VERDICT_INTERNAL;;
 			jug_int_send_verdict(client_sock,err_verdict);
 			debugt("queue","worker: %d, verdict:%s",queue_worker_id(),jug_int_verdict_to_string(err_verdict));
 			close(client_sock);
-			jug_int_free_submission(&submission);
+			lang_free_BinaryInformation(&binInfo);
 			jug_int_free_request(&request);
 			return;
 		}
-
+		//inject binaryInformation into the Submission structure
+		submission.bin_path=(char*)malloc(sizeof(char)*400);
+		submission.bin_cmd=(char*)malloc(sizeof(char)*500);
+		strcpy(submission.bin_path, binInfo.bin_path);
+		strcpy(submission.bin_cmd, binInfo.bin_cmd);
+		submission.interpreted=binInfo.interpreted;
+		lang_free_BinaryInformation(&binInfo);
 		//done with the request
 		jug_int_free_request(&request);
 
 		// SEND TO THE SANDBOX
-		verdict=jug_sandbox_judge(&submission);
 
+		verdict=jug_runner_judge(&submission);
 		//	free resources
-		lang_remove_binary(submission);
+		lang_remove_binary(submission.bin_path);
 		//clear feed files ()
 		jug_feed_remove_by_name(submission.input_filename);
 		jug_feed_remove_by_name(submission.output_filename);
 		
-		jug_int_free_submission(&submission);
+		jug_runner_free_submission(&submission);
 		
 
 		//TODO: remove the files
@@ -261,140 +267,7 @@ void queue_worker_serv(jug_connection* connection){
 
 
 }
-//NOTE : here for now
-void queue_worker_serv_old(jug_connection* connection)
-{
-	/*
-	int read_size, read_size_acc=0;
-	int write_size=0;
-	int worker_id;
-	int error=0;
-	int_request request;
-	int_response response;
-	jug_submission submission;
-	jug_verdict_enum verdict;
-	//use interface.h/proroco.h to generate a valid submission in case of a judging request
-	//compile the submission code
-	//run the resulting binary inside the sandbox.
-	//send the client the response object
-	//close connection
-	//FIXME: waste time (0.5s)
-	sleep(0.5);
-	worker_id=queue_worker_id();
-	//Receive a message from client
-	int client_sock=connection->client_socket;
-	//
-	if(jug_int_recv(client_sock,&request)!=0){
-		debugt("queue","error while receiving, worker %d",queue_worker_id());
-		return;
-	}
-	//make a submisison object (in the real scenario, we will need more elaborated data)
-	submission.input_filename=(char*)malloc(300);
-	submission.output_filename=(char*)malloc(300);
-	submission.source=(char*)malloc(7000);
-	submission.bin_path=(char*)malloc(300);
-	char* jug_root=getenv("JUG_ROOT");
 
-	sprintf(submission.input_filename,"%s",request.tc_in_path);
-	sprintf(submission.output_filename,"%s",request.tc_out_path);
-	sprintf(submission.bin_path,"%s",request.path);
-	sprintf(submission.source,"%s",request.sourcecode);
-	submission.thread_id=queue_worker_id();
-
-
-
-	//compile the sourcecode (if sourcecode is set, transform to a binary to be executed)
-	if(request.sourcecode[0]!='\0'){
-		//	debugt("queue"," ~~~source code~~~~\n%s\n~~~~~~~~~~~", request.sourcecode);
-		debugt("queue","source found in the request");
-		error=lang_process(submission.source, "c",worker_id,submission.bin_path);
-		if(error){
-			debugt("queue"," error at lang_process() : %d",error);
-			//return the verdict
-			response.verdict=(int)VERDICT_INTERNAL;
-			sprintf(response.verdict_s,"%s (%d)",protocol_verdict_to_string(response.verdict),worker_id);
-			debugt("queue","worker: %d, verdict:%s",queue_worker_id(),protocol_verdict_to_string(response.verdict));
-			write_size=write(client_sock , &response, sizeof(int_response));
-			//jug_int_write(client_sock, &response);
-			close(client_sock);
-			return;
-		}
-
-	}else if(request.sourcecode_path[0]!='\0'){
-		debugt("queue","sourcecode path is given : %s", request.sourcecode_path);
-		FILE* source_file=fopen(request.sourcecode_path,"r");
-		if(source_file==NULL){
-			debugt("queue","cannot open sourcecode_path");
-			debugt("queue"," error at lang_process() : %d",error);
-			//return the verdict
-			response.verdict=(int)VERDICT_INTERNAL;
-			sprintf(response.verdict_s,"%s (%d)",protocol_verdict_to_string(response.verdict),worker_id);
-			debugt("queue","worker: %d, verdict:%s",queue_worker_id(),protocol_verdict_to_string(response.verdict));
-			write_size=write(client_sock , &response, sizeof(int_response));
-			//jug_int_write(client_sock, &response);
-			close(client_sock);
-			return;
-		}
-		char* source_begin=submission.source;
-		while(fgets(source_begin,6800,source_file)!=NULL){
-			source_begin+=strlen(source_begin);
-		}
-		if(error){
-			debugt("queue"," cannot extract source from sourcecode_path: (%d)",error);
-			response.verdict=(int)VERDICT_INTERNAL;
-			sprintf(response.verdict_s,"%s (%d)",protocol_verdict_to_string(response.verdict),worker_id);
-			debugt("queue","worker: %d, verdict:%s",queue_worker_id(),protocol_verdict_to_string(response.verdict));
-			write_size=write(client_sock , &response, sizeof(int_response));
-			//jug_int_write(client_sock, &response);
-			close(client_sock);
-			return;
-		}
-		fclose(source_file);
-		debugt("queue","length of source extracted from file : %d",strlen(submission.source) );
-		error=lang_process(submission.source, "c",worker_id,submission.bin_path);
-		if(error){
-			debugt("queue"," error at lang_process() : %d",error);
-			//return the verdict
-			response.verdict=(int)VERDICT_INTERNAL;
-			sprintf(response.verdict_s,"%s (%d)",protocol_verdict_to_string(response.verdict),worker_id);
-			debugt("queue","worker: %d, verdict:%s",queue_worker_id(),protocol_verdict_to_string(response.verdict));
-			write_size=write(client_sock , &response, sizeof(int_response));
-			//jug_int_write(client_sock, &response);
-			close(client_sock);
-			return;
-		}
-
-	}else{
-		debugt("queue"," neither source or sourcecode_path are given from client");
-		//return the verdict
-		response.verdict=(int)VERDICT_INTERNAL;
-		sprintf(response.verdict_s,"%s (%d)",protocol_verdict_to_string(response.verdict),worker_id);
-		debugt("queue","worker: %d, verdict:%s",queue_worker_id(),protocol_verdict_to_string(response.verdict));
-		write_size=write(client_sock , &response, sizeof(int_response));
-		//jug_int_write(client_sock, &response);
-		close(client_sock);
-		return;
-	}
-
-	// SEND TO THE SANDBOX
-	verdict=jug_sandbox_judge(&submission);
-	//	verdict=VERDICT_ACCEPTED;
-
-	free(submission.input_filename);
-	free(submission.output_filename);
-	free(submission.source);
-	free(submission.bin_path);
-	//TODO: remove the files
-
-	//return the verdict
-	response.verdict=(int)verdict;
-	sprintf(response.verdict_s,"%s (%d)",protocol_verdict_to_string(verdict),worker_id);
-	debugt("queue","worker: %d, verdict:%s",queue_worker_id(),protocol_verdict_to_string(verdict));
-	write_size=write(client_sock , &response, sizeof(int_response));
-	//jug_int_write(client_sock, &response);
-	close(client_sock);
-	*/
-}
 
 //get the id of the current worker
 int queue_worker_id(){

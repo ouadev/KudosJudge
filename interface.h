@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include "buffer/buffer.h"
 #include "log.h"
+#include "def.h"
 
 #define RECEIVE_SIZE_MAX 5000
 #define REQUEST_SIZE_MAX 30000000 //30MB
@@ -40,27 +41,7 @@ void jug_int_free_connection(jug_connection* connection);
  * (note: use a serialization framework to send these structures over network;
  * + should recompile client.c if something changed in the definition of this structure
  */
-/*
-typedef struct int_request{
-	int type; //< type of request :
-			//initContestMode (to load testcases and stuff), judgeSubmission, getState (used also to get the verdict)
-	int synchronous; //<wether the client wishes to wait for the verdict or not, otherwise he will use getState afterward.
 
-	int id; ///< this ID is provided by the client to be able to follow the state of a submission, (useful when synchronous is off)
-
-	char tc_in_path[100]; ///< path outside ERFS
-	char tc_out_path[100]; ///< path outside ERFS
-	char sourcecode_path[100];
-	char sourcecode[500]; //the source code of the submission
-	//for debugging
-	char path[50]; ///< path to execute (inside ERFS if activated) // in case the client give directly the binary (only in debug mode)
-	char echo[15]; ///< simple char array to return back to test connection
-	//
-
-
-
-}int_request;
-*/
 
 typedef enum {INT_REQ_TYPE_JUDGE, INT_REQ_TYPE_SETFEED} int_request_type;
 typedef enum {INT_REQ_FEEDTYPE_DATA, INT_REQ_FEEDTYPE_REFERENCE} int_request_feed_type;
@@ -99,61 +80,6 @@ void jug_int_free_request(int_request* request);
 
 
 
-/* Protocol Part*/
-/**
- * protocol.h
- * definition of the submission information, languages , ...
- * (execution mode, language, test cases, time limit, mem limit, ...)
- * In other words the protocol of communication is defined here.
- * this functions are intented to be called by the worker threads after they retreive a submission from
- * the queue.
- * @note: this file is like a layer between the (interface/queue), (eventual compiling_layer) and (sandbox)
- */
-
-
-/**
- * supported languages
- */
-
-typedef enum {LANG_C, LANG_CPP,  LANG_JAVA, LANG_PHP, LANG_PYTHON} jug_lang_enum;
-/**
- * possible judge verdicts
- */
-typedef enum { 	VERDICT_ACCEPTED,
-				VERDICT_WRONG,
-				VERDICT_COMPILE_ERROR,
-				VERDICT_TIMELIMIT,
-				VERDICT_MEMLIMIT,
-				VERDICT_OUTPUTLIMIT,
-				VERDICT_RUNTIME,
-				VERDICT_INTERNAL //internal error (judge's mistake)
-				} jug_verdict_enum;
-
-
-/**
- * the structure that represents the submission. made during communication.
- */
-
-typedef struct jug_submission
-{
-    char* source;
-    char* input_filename;
-    char* output_filename;
-    int   language;
-    int   time_limit;
-    int   mem_limit;
-    int   thread_id; //propagated to the other parts of the judge (debug only)
-    //exec stuff
-    int   interpreted;
-    char* bin_cmd; //the command to execute
-    char* bin_path; //the path to the file to be executed/interpreted
-} jug_submission;
-
-/**
- * global stuff
- */
-
-
 
 /**
  * methods
@@ -161,6 +87,6 @@ typedef struct jug_submission
 
 const char* jug_int_verdict_to_string(jug_verdict_enum verdict);
 int jug_int_send_verdict(int client_sock,jug_verdict_enum verdict);
-void jug_int_free_submission(jug_submission* submission);
+
 
 #endif

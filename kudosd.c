@@ -21,7 +21,7 @@
 #include "log.h"
 #include "interface.h"
 #include "queue.h"
-#include "sandbox.h"
+#include "runner.h"
 #include "ramfs.h"
 #include "lang.h"
 #include "config.h"
@@ -317,14 +317,14 @@ int main(int argc, char* argv[]){
 	}
 	kjd_log("Queue and workers are ready");
 	////////////////////////
-	///////init sandbox////
+	///////init Runner////
 	//////////////////////
-	error=jug_sandbox_start();
+	error=jug_runner_start( queue_get_workers_count() );
 	if(error<0){
-		kjd_log("Sandbox not started");
+		kjd_log("Runner not started");
 		return -556;
 	}
-	kjd_log("Sandbox started");
+	kjd_log("Runner started");
 	///////////////////////////
 	///// init languages /////
 	/////////////////////////
@@ -495,10 +495,10 @@ void kjd_sighandler(int sig){
 			kjd_log("failed to stop Queue's workers");
 			return;
 		}
-		//stopping sandbox (template process)
-		kjd_log("stopping Sandbox");
-		if(jug_sandbox_stop()){
-			kjd_log("failed to stop Sandbox");
+		//stopping Runner (template process)
+		kjd_log("stopping Runner");
+		if(jug_runner_stop()){
+			kjd_log("failed to stop Runner");
 			return ;
 		}
 		//remove tmp file

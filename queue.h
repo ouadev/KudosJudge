@@ -14,7 +14,7 @@
 #include <time.h>
 #include "config.h"
 #include "interface.h"
-#include "sandbox.h"
+#include "runner.h"
 #include "lang.h"
 #include "buffer/buffer.h"
 #include "feed.h"
@@ -98,10 +98,7 @@ int queue_get_workers_count();
  *
  */
 void* queue_worker_main(void* data);
-/**
- * the function the worker use to handle the connection affected to him.
- */
-void queue_worker_serv_old(jug_connection* connection);
+
 /**
  * the function the worker use to handle the connection affected to him.
  */

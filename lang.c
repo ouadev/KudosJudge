@@ -136,7 +136,7 @@ Lang* lang_get(char* langid){
 
 //lang_process
 //, char*bin_cmd, char* output_exec
-int lang_process(jug_submission* submission, char* langid, int worker_id){
+int lang_process(char* langid, char* source, int worker_id, BinaryInformation* binInfo){
 	//init the worker directory in the languages workspace
 	
 	if(lang_workspace_inited[worker_id]==0){
@@ -169,8 +169,8 @@ int lang_process(jug_submission* submission, char* langid, int worker_id){
 	char* output_filename=(char*)malloc(sizeof(char)*(strlen(ramfs->path)+50));
 	char* compile_cmdline=(char*)malloc(sizeof(char)*(strlen(ramfs->path)+200));
 
-	submission->bin_cmd=(char*)malloc(300);
-	submission->bin_path=(char*)malloc(300);
+	binInfo->bin_cmd=(char*)malloc(300);
+	binInfo->bin_path=(char*)malloc(300);
 
 	FILE* compile_file=NULL;
 	struct stat st;
@@ -187,7 +187,7 @@ int lang_process(jug_submission* submission, char* langid, int worker_id){
 			free(compile_cmdline);
 			return -2;
 		}
-		int pp=fputs(submission->source,compile_file);
+		int pp=fputs(source,compile_file);
 		if(pp<=0){
 			debugt("lang","cannot write sourcecode to text_filename");
 			free(text_filename);
@@ -234,17 +234,17 @@ int lang_process(jug_submission* submission, char* langid, int worker_id){
 
 	
 	if(lang->type==LANG_COMPILED){
-		sprintf(submission->bin_cmd,"%s", output_filename);
-		submission->interpreted=0;
+		sprintf(binInfo->bin_cmd,"%s", output_filename);
+		binInfo->interpreted=0;
 	}else if( lang->type==LANG_VM){
-		sprintf(submission->bin_cmd, lang->cmd_vm, output_filename );
-		submission->interpreted=1;
+		sprintf(binInfo->bin_cmd, lang->cmd_vm, output_filename );
+		binInfo->interpreted=1;
 	}else if (lang->type==LANG_INTERPRETED){
-		sprintf(submission->bin_cmd, lang->cmd_interpr, output_filename);
-		submission->interpreted=1;
+		sprintf(binInfo->bin_cmd, lang->cmd_interpr, output_filename);
+		binInfo->interpreted=1;
 	}
 	//set the output filename
-	strcpy(submission->bin_path, output_filename);
+	strcpy(binInfo->bin_path, output_filename);
 	//cleanup
 	free(text_filename);
 	free(output_filename);
@@ -257,8 +257,8 @@ int lang_process(jug_submission* submission, char* langid, int worker_id){
 }
 
 //lang_remove_binary
-void lang_remove_binary(jug_submission submission){
-	unlink(submission.bin_path);
+void lang_remove_binary( char*path){
+	unlink( path );
 }
 
 //lang_print
@@ -278,4 +278,13 @@ void lang_print(){
 		if(i==g_languages_count-1)
 			debug("-------------------------");
 	}
+}
+
+
+
+
+int lang_free_BinaryInformation(BinaryInformation* binInfo){
+	free(binInfo->bin_cmd);
+	free(binInfo->bin_path);
+	return 0;
 }

@@ -48,6 +48,16 @@ typedef struct{
 
 
 } Lang;
+/**
+* BinaryInformation structure
+* Holds informatio about the resulting binary to be executed later.
+*/
+typedef struct{
+	char*bin_cmd;
+	char* bin_path;
+	int interpreted;
+
+} BinaryInformation;
 
 
 Lang g_languages[19]; //19 languages maximum
@@ -68,14 +78,14 @@ int lang_init();
  * @param output_exec the path to the output of the bin_cmd command.
  */
 
-int lang_process(jug_submission* submission , char* langid, int worker_id);
+int lang_process( char* langid, char* source, int worker_id, BinaryInformation* binInfo );
 
 /**
 *
 * lang_remove_binary()
 * removes a binary after the end of execution inside the sandbox.
 */
-void lang_remove_binary(jug_submission submission);
+void lang_remove_binary(char* filepath);
 /**
  * returns the Lang structure from an id
  * @return Lang structure, NULL if not found
@@ -83,6 +93,8 @@ void lang_remove_binary(jug_submission submission);
 Lang* lang_get(char* langid);
 
 void lang_print();
+
+int lang_free_BinaryInformation(BinaryInformation* binInfo);
 
 
 #endif

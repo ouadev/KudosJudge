@@ -125,13 +125,7 @@ void jug_int_free_request(int_request* request){
 	free(request->output);
 }
 
-void jug_int_free_submission(jug_submission* submission){
-	free(submission->input_filename);
-	free(submission->output_filename);
-	free(submission->source);
-	free(submission->bin_path);
-	free(submission->bin_cmd);
-}
+
 
 
 void jug_int_free_connection(jug_connection* connection){
