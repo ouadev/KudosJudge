@@ -8,7 +8,10 @@ The Daemon is supposed to be fast and secure. to acheive this, threads are used 
 The Daemon can be easily deployed on multiple nodes, by only using a custom-made DNS Load Balancer (no yet developed)
 The ultimate goal of such a software is to develop an API the contests organizers can use to make their own judging systems by only focusing on user and score management and let the judging part to KudosJudge.
 
-How To Install ?
+The support of other languages than C is not complete yet.
+A fully client library is not yet developed, but a client exists to get a taste of the judge's capabilities.
+
+How To Use ?
 ------------------------------
 KudosJudge is tested in Ubuntu with Linux > 3.0.
 clone the repository.
@@ -34,6 +37,14 @@ sudo kudosd stop
 to get Kudos Daemon's log :
 ```
 kudos-syslog
+```
+use the client to send C code, input, and the expected output to the Judge.
+```
+kudos-client -h SERVER_IP SOURCECODE_FILE INPUT_FILE EXPECTED_OUTPUT_FILE
+```
+and example of the call, when the server is in the same machine, is :
+```
+kudos-client -h 127.0.0.1 source.c input.txt output.txt
 ```
 Components
 ---------------------
