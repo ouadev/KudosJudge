@@ -3,9 +3,8 @@ What is KudosJudge ?
 --------------------------------
 Short: Open Source Online Judge Server.  
 Long: That's a Daemon that receives submissions over network, every submission is a code to be compiled, run and compared to the correct answer of a given problem, a verdict is returned to the client.  
-The Daemon is supposed to be fast and secure. to acheive this, threads are used (pthreads) and a sandboxing system using Linux Containers is implemented. To reduce IO operations, as compiling source code, reading input files, and writing output files, a filesystem-on-memory is used (RAMFS). More Innovative ideas are experimented here to make the process of executing the submission fast.
+The Daemon is supposed to be fast and secure. to acheive this, threads are used (pthreads) and a sandboxing system using Linux Containers is implemented. To reduce IO operations, as compiling source code, reading input files, and writing output files, a filesystem-on-memory is used (RAMFS). More Innovative ideas are experimented here to make the process of executing the submission fast. The Daemon can be easily deployed on multiple nodes, by only using a custom-made DNS Load Balancer (no yet developed).  
 
-The Daemon can be easily deployed on multiple nodes, by only using a custom-made DNS Load Balancer (no yet developed)
 The ultimate goal of such a software is to develop an API the contests organizers can use to make their own judging systems by only focusing on user and score management and let the judging part to KudosJudge.
 
 The support of other languages than C is not complete yet.
