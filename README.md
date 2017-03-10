@@ -70,10 +70,9 @@ the project is on hold. I need some contributors to help me resume the developme
 the network part, the threading, and sandboxing seem to work just fine.
 Credits 
 ----------------------------
-Ouadim Jamal           : sandboxing,execution, configuration.
+Ouadim Jamal           : sandboxing,execution, configuration.  
 Beqqi Mohammed         : threading/network.
 
 contact
 ------------------------------
-please contact if you're intersted in the idea, or wish to contribute so that the project can be deployed and used. 
-contact also if you have questions .
+If you're intersted in the idea, or wish to contribute so that the project can be deployed and used, please contact me or just open an issue within the repository.
