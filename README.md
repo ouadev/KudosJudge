@@ -1,8 +1,8 @@
 
 What is KudosJudge ?
 --------------------------------
-Short: Open Source Online Judge Server.
-Long: That's a Daemon that receives submissions over network, every submission is a code to be compiled, run and compared to the correct answer of a given problem, a verdict is returned to the client.
+Short: Open Source Online Judge Server.  
+Long: That's a Daemon that receives submissions over network, every submission is a code to be compiled, run and compared to the correct answer of a given problem, a verdict is returned to the client.  
 The Daemon is supposed to be fast and secure. to acheive this, threads are used (pthreads) and a sandboxing system using Linux Containers is implemented. To reduce IO operations, as compiling source code, reading input files, and writing output files, a filesystem-on-memory is used (RAMFS). More Innovative ideas are experimented here to make the process of executing the submission fast.
 
 The Daemon can be easily deployed on multiple nodes, by only using a custom-made DNS Load Balancer (no yet developed)
@@ -13,7 +13,7 @@ A fully client library is not yet developed, but a client exists to get a taste 
 
 How To Use ?
 ------------------------------
-KudosJudge is tested in Ubuntu with Linux > 3.0.
+KudosJudge is tested in Ubuntu with Linux > 3.0.  
 clone the repository.
 ```
 make
@@ -46,6 +46,12 @@ and example of the call, when the server is in the same machine, is :
 ```
 kudos-client -h 127.0.0.1 source.c input.txt output.txt
 ```
+The client will receive eventually the verdict from the Judge.  
+to get the logging of the Execution Component of the Judge :
+```
+kudos-stderr
+```
+
 Components
 ---------------------
 KudosJudge is composed from 4 components : 
