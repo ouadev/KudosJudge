@@ -13,7 +13,22 @@ How To Install ?
 KudosJudge is tested in Ubuntu with Linux > 3.0.
 clone the repository.
 ```make
+```
+```
    sudo make install
+```
+
+Start the server :
+```sudo kudosd start
+```
+you can check the server's state :
+```sudo kudosd state
+```
+or stop it
+```sudo kudosd stop
+```
+to get Kudos Daemon's log :
+```kudos-syslog
 ```
 Components
 ---------------------
