@@ -1,5 +1,21 @@
 .Notes
 
-+ fix the verdicts, so if any error occured in the SERVER, the client should always INTERNAL_ERROR, anf RUNTIME_ERROR if the problem is in their code.
++ BUG :	WRONG_ANSWER submissions blocks sometimes and make the worker unusable. 
 + even if the Judge works well, add some time limits to pipes and reading to gain more stability. 
-+ deactivate a worker if something went wrong, so it doesn't take work next time
++ deactivate a worker if something went wrong, so it doesn't take work next time.
++ reject requests with TRY_LATER response when the Queue is full.
+
+
+
+
+
+
+. Benchmarking
+
++ wost-case scenario : the submission takes 5s of cpu time, and receive 1M of data stream
+	+ design a standard program
++ calculate Mean Service Time : the time it takes to judge a correct (full cpu time) request.
++ Mean Service Time of a wrong/compile/runtime errors is MST miltiplied by the proportion of time the error occured.
++ example of contest where standard ACM => 100 clients. sending requests every 1minute.
+	+ == 100requests/minutes ~= 2 requests/second
+	
